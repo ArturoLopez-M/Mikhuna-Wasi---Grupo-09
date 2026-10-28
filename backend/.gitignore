@@ -1,0 +1,19 @@
+﻿# Dependencias instaladas
+node_modules/
+
+# Artefactos de compilación
+dist/
+coverage/
+
+# Variables de entorno con secretos reales
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# Archivos del sistema operativo
+Thumbs.db
+.DS_Store
