@@ -65,3 +65,17 @@ CREATE TABLE order_items (
 );
 
 CREATE INDEX order_items_order_idx ON order_items (restaurant_id, order_id);
+
+CREATE TABLE payments (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    restaurant_id UUID NOT NULL,
+    order_id      UUID NOT NULL,
+    amount        NUMERIC(10,2) NOT NULL CHECK (amount > 0),
+    method        TEXT NOT NULL CHECK (method IN ('cash', 'card', 'digital_wallet')),
+    received_by   UUID NOT NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Un solo pago por pedido (MVP). Tambien sirve de indice por pedido.
+    UNIQUE (restaurant_id, order_id),
+    FOREIGN KEY (restaurant_id, order_id)    REFERENCES orders (restaurant_id, id),
+    FOREIGN KEY (restaurant_id, received_by) REFERENCES users  (restaurant_id, id)
+);
