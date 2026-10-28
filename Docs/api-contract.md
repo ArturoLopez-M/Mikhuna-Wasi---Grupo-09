@@ -57,7 +57,7 @@ Roles: `admin`, `waiter`, `kitchen`, `cashier`. El admin puede hacer todo lo ope
 
 | Acción | Roles |
 |---|---|
-| `GET /me`, ver productos, ver pedidos | todos |
+| `GET /api/v1/me`, ver productos, ver pedidos | todos |
 | Crear y editar productos | admin |
 | Registrar pedido | admin, waiter |
 | `start-preparing`, `mark-ready` | kitchen, admin |
@@ -213,7 +213,7 @@ Todas son `POST`, no llevan cuerpo (salvo `payment`), devuelven `200` con el ped
 | Cancelar | `/api/v1/orders/{id}/cancel` | waiter (propios, `pending`), admin | `pending`, `preparing`, `ready` | `cancelled` |
 | Pagar y cerrar | `/api/v1/orders/{id}/payment` | cashier, admin | `ready` | `closed` |
 
-**Orden de verificación** en todas las acciones: (1) rol de la ruta, `403`; (2) el pedido existe en el restaurante del usuario, `404`; (3) regla de propiedad si aplica, `403`; (4) estado, `409 INVALID_ORDER_STATUS`; (5) en `payment`, pago existente y monto.
+**Orden de verificación** en todas las acciones: (1) rol de la ruta, `403`; (2) el pedido existe en el restaurante del usuario, `404`; (3) regla de propiedad si aplica, `403`; (4) estado, `409 INVALID_ORDER_STATUS`. En `payment` el orden cambia: (4) pago existente, `409 ORDER_ALREADY_PAID`; (5) estado, `409 INVALID_ORDER_STATUS`; (6) monto, `409 PAYMENT_AMOUNT_MISMATCH`.
 
 **Cancelar:** sin motivo en el MVP (no se acepta `reason`). El mesero solo cancela sus propios pedidos en `pending`; si el pedido es de otro empleado del mismo restaurante, `403`. El admin cancela en `pending`, `preparing` o `ready`. Desde `closed` o `cancelled`: `409 INVALID_ORDER_STATUS`.
 
@@ -230,8 +230,8 @@ Todas son `POST`, no llevan cuerpo (salvo `payment`), devuelven `200` con el ped
 Una sola transacción:
 
 1. `SELECT ... FOR UPDATE` sobre el pedido, filtrado por restaurante.
-2. Verificar estado `ready` (`409 INVALID_ORDER_STATUS` si no).
-3. Si ya existe pago, `409 ORDER_ALREADY_PAID`. El error `23505` del `UNIQUE (restaurant_id, order_id)` también se traduce a este código.
+2. Si el pedido ya tiene un pago, `409 ORDER_ALREADY_PAID`. Se comprueba **antes** que el estado: un pedido pagado está `closed`, y si se validara primero el estado, este error nunca se devolvería. Una solicitud concurrente que espera el bloqueo ve el pago ya registrado y recibe este mismo código. El error `23505` del `UNIQUE (restaurant_id, order_id)` también se traduce a `ORDER_ALREADY_PAID` como red de seguridad.
+3. Verificar estado `ready` (`409 INVALID_ORDER_STATUS` si no; por ejemplo, un pedido `cancelled` o que aún no está listo).
 4. Comparar `amount` con el total calculado; si difiere, `409 PAYMENT_AMOUNT_MISMATCH`.
 5. Insertar el pago (con `received_by` = usuario autenticado) y pasar el pedido a `closed`.
 
