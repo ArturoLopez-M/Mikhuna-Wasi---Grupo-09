@@ -1,6 +1,9 @@
 import request from "supertest";
 import { describe, expect, it } from "vitest";
-import { app } from "../src/app";
+import { createApp } from "../src/app";
+import { fakeDb } from "./helpers/fakeDb";
+
+const app = createApp({ db: fakeDb() });
 
 describe("manejo de errores", () => {
   it("responde 404 NOT_FOUND en JSON para una ruta inexistente", async () => {
