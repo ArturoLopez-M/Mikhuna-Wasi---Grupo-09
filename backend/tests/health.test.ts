@@ -10,4 +10,10 @@ describe("GET /health", () => {
     expect(res.headers["content-type"]).toMatch(/application\/json/);
     expect(res.body).toEqual({ status: "ok" });
   });
+
+  it("no expone la cabecera X-Powered-By", async () => {
+    const res = await request(app).get("/health");
+
+    expect(res.headers["x-powered-by"]).toBeUndefined();
+  });
 });
