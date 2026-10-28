@@ -80,7 +80,17 @@ pending -> preparing -> ready -> closed
 
 ### 6.1 Salud
 
-`GET /health` (público). Fuera del prefijo `/api/v1`.
+`GET /health` (público). Fuera del prefijo `/api/v1`. Comprueba la conexión a la base de datos con `SELECT 1`:
+
+- `200` y `{ "status": "ok" }` si la base responde.
+- `503` y `{ "status": "error" }` si no responde. La respuesta no revela el motivo; el detalle va solo al log.
+
+Todo lo que cuelga de `/api/v1` exige autenticación. Comprueba la conexión a la base de datos con `SELECT 1`:
+
+- `200` y `{ "status": "ok" }` si la base responde.
+- `503` y `{ "status": "error" }` si no responde. La respuesta no revela el motivo; el detalle va solo al log.
+
+Todo lo que cuelga de `/api/v1` exige autenticación.
 
 ### 6.2 Usuario actual
 
