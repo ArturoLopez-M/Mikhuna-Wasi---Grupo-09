@@ -109,17 +109,3 @@ El despliegue está previsto en AWS y contempla los siguientes pasos generales:
 La configuración de red, permisos y conectividad se realizará según los requisitos de cada servicio.
 
 Los procedimientos detallados de configuración y despliegue se documentarán conforme avance la implementación.
-
-## Estado del proyecto
-
-El proyecto se encuentra en desarrollo. Las funcionalidades, la estructura definitiva del código y los componentes de AWS se incorporarán y validarán progresivamente.
-
-El MVP se considerará funcional cuando permita completar el flujo principal de pedidos, preparación y pagos con persistencia real de datos, autenticación, control de acceso y aislamiento de la información entre restaurantes.
-
-## Información del proyecto
-
-- **Nombre:** Mikhuna Wasi
-- **Tipo de solución:** Sistema web SaaS
-- **Plataforma de despliegue prevista:** Amazon Web Services (AWS)
-- **Base de datos prevista:** Amazon Aurora PostgreSQL Serverless v2
-
