@@ -1,12 +1,19 @@
-import express from "express";
+import express, { type RequestHandler } from "express";
 import type { Database } from "./db/pool";
+import { authenticatePlaceholder } from "./middleware/authPlaceholder";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
+import { createApiRouter } from "./routes";
 
 export interface AppDependencies {
   db: Database;
+  // Por defecto rechaza todo (401). La rama de Cognito inyecta la real.
+  authenticate?: RequestHandler;
 }
 
-export function createApp({ db }: AppDependencies) {
+export function createApp({
+  db,
+  authenticate = authenticatePlaceholder,
+}: AppDependencies) {
   const app = express();
 
   app.disable("x-powered-by");
@@ -25,6 +32,8 @@ export function createApp({ db }: AppDependencies) {
       res.status(503).json({ status: "error" });
     }
   });
+
+  app.use("/api/v1", createApiRouter({ db, authenticate }));
 
   app.use(notFoundHandler);
   app.use(errorHandler);
