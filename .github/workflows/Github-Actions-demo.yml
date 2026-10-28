@@ -13,3 +13,9 @@ jobs:
       - name: Listar los archivos del repo
         run: |
           ls ${{ github.workspace }}
+      - name: Usar el secreto de forma segura
+        env:
+          AGENTE_SECRETO: ${{ secrets.AGENTE_SECRETO }}
+        run: |
+          echo "Mi secreto es $AGENTE_SECRETO"
+        
