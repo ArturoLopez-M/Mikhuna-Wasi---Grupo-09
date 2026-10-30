@@ -7,7 +7,7 @@ terraform {
   }
 
   backend "s3" {
-    bucket       = "lab09-mikhunawasi--bucket"
+    bucket       = "lab09-mikhunawasi-bucket"
     key          = "lab09/dev/terraform.tfstate"
     region       = "us-east-2"
     use_lockfile = true
