@@ -55,6 +55,7 @@ CREATE TABLE order_items (
     restaurant_id UUID NOT NULL,
     order_id      UUID NOT NULL,
     product_id    UUID NOT NULL,
+    product_name  TEXT NOT NULL CHECK (btrim(product_name) <> ''),
     quantity      INTEGER NOT NULL CHECK (quantity > 0),
     -- Precio copiado del producto al crear la linea (historico).
     unit_price    NUMERIC(10,2) NOT NULL CHECK (unit_price >= 0),
