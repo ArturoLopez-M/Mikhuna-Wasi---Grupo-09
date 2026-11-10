@@ -1,6 +1,6 @@
 import { Router, type RequestHandler } from "express";
 import type { Database } from "../db/pool";
-
+import { createOrdersRouter } from "../modules/orders/router";
 export interface ApiDependencies {
   db: Database;
   authenticate: RequestHandler;
@@ -13,8 +13,7 @@ export interface ApiDependencies {
 //   router.use("/products", createProductsRouter(deps));
 export function createApiRouter(deps: ApiDependencies): Router {
   const router = Router();
-
   router.use(deps.authenticate);
-
+  router.use("/orders", createOrdersRouter(deps));
   return router;
 }
