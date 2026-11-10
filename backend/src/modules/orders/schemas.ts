@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 const orderItemSchema = z.strictObject({
-  productId: z.uuid(),
+  productId: z.guid(),
   quantity: z.int().min(1).max(99),
   notes: z.string().trim().max(200).nullable().optional(),
 });
