@@ -30,19 +30,6 @@ resource "aws_s3_bucket_public_access_block" "frontend" {
   restrict_public_buckets = true
 }
 
-resource "aws_s3_bucket_lifecycle_configuration" "frontend" {
-  bucket = aws_s3_bucket.frontend.id
-
-  rule {
-    id     = "cleanup-rule"
-    status = "Enabled"
-
-    noncurrent_version_expiration {
-      noncurrent_days = 90
-    }
-  }
-}
-
 resource "aws_s3_object" "index" {
   bucket       = aws_s3_bucket.frontend.id
   key          = "index.html"
