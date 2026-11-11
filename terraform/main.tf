@@ -11,13 +11,9 @@ variable "frontend_bucket" {
 resource "aws_s3_bucket" "frontend" {
   bucket        = var.frontend_bucket
   force_destroy = true
-}
 
-resource "aws_s3_bucket_versioning" "frontend" {
-  bucket = aws_s3_bucket.frontend.id
-
-  versioning_configuration {
-    status = "Enabled"
+  versioning {
+    enabled = true
   }
 }
 
