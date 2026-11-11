@@ -13,6 +13,14 @@ resource "aws_s3_bucket" "frontend" {
   force_destroy = true
 }
 
+resource "aws_s3_bucket_versioning" "frontend" {
+  bucket = aws_s3_bucket.frontend.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
 resource "aws_s3_object" "index" {
   bucket       = aws_s3_bucket.frontend.id
   key          = "index.html"
