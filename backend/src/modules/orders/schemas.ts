@@ -38,3 +38,19 @@ export const listOrdersQuerySchema = z.object({
 });
 
 export type ListOrdersQuery = z.infer<typeof listOrdersQuerySchema>;
+
+// Acciones sin cuerpo: se acepta vacío, pero no campos desconocidos.
+export const emptyBodySchema = z.strictObject({});
+
+const moneySchema = z
+  .string()
+  .trim()
+  .regex(/^\d{1,8}(\.\d{1,2})?$/, "Monto inválido")
+  .refine((v) => Number(v) > 0, "El monto debe ser mayor que 0");
+
+export const paymentSchema = z.strictObject({
+  method: z.enum(["cash", "card", "digital_wallet"]),
+  amount: moneySchema,
+});
+
+export type PaymentInput = z.infer<typeof paymentSchema>;

@@ -1,9 +1,13 @@
 import { z } from "zod";
-import type { Database } from "../../db/pool";
+import type { Database, Queryable } from "../../db/pool";
 import type { AuthIdentity } from "../../types/auth";
 import { HttpError, type ErrorDetail } from "../../utils/httpError";
 import { queryOrders } from "./repository";
-import type { CreateOrderInput, ListOrdersQuery } from "./schemas";
+import type {
+  CreateOrderInput,
+  ListOrdersQuery,
+  PaymentInput,
+} from "./schemas";
 
 interface ProductRow {
   id: string;
@@ -180,4 +184,180 @@ export async function getOrder(
     throw new HttpError(404, "NOT_FOUND", "Recurso no encontrado");
   }
   return orders[0]!;
+}
+// ---------------------------------------------------------------------------
+// Acciones sobre un pedido (contrato, sección 6.5)
+// ---------------------------------------------------------------------------
+
+interface LockedOrder {
+  id: string;
+  status: string;
+  created_by: string;
+}
+
+function notFound(): HttpError {
+  return new HttpError(404, "NOT_FOUND", "Recurso no encontrado");
+}
+
+function invalidStatus(): HttpError {
+  return new HttpError(
+    409,
+    "INVALID_ORDER_STATUS",
+    "El pedido no está en un estado válido para esta acción",
+  );
+}
+
+function alreadyPaid(): HttpError {
+  return new HttpError(409, "ORDER_ALREADY_PAID", "El pedido ya fue pagado");
+}
+
+// Verificación (2): el pedido existe en el restaurante del usuario. Lo bloquea
+// con FOR UPDATE: dos acciones simultáneas sobre el mismo pedido se turnan.
+async function lockOrder(
+  tx: Queryable,
+  restaurantId: string,
+  id: string,
+): Promise<LockedOrder> {
+  if (!z.guid().safeParse(id).success) throw notFound();
+
+  const { rows } = await tx.query<LockedOrder>(
+    `SELECT id, status, created_by
+       FROM orders
+      WHERE restaurant_id = $1 AND id = $2
+        FOR UPDATE`,
+    [restaurantId, id],
+  );
+  if (rows.length === 0) throw notFound();
+  return rows[0]!;
+}
+
+async function loadOrder(tx: Queryable, restaurantId: string, id: string) {
+  const { orders } = await queryOrders(
+    tx,
+    restaurantId,
+    { id },
+    { direction: "DESC", limit: 1, offset: 0 },
+  );
+  return orders[0]!;
+}
+
+// Cambio de estado genérico. `check` es la verificación (3), de propiedad;
+// `allowedFrom` es la verificación (4), de estado.
+async function changeStatus(
+  db: Database,
+  identity: AuthIdentity,
+  id: string,
+  allowedFrom: string[],
+  to: string,
+  check?: (order: LockedOrder) => void,
+) {
+  const { restaurantId } = identity;
+
+  return db.transaction(async (tx) => {
+    const order = await lockOrder(tx, restaurantId, id);
+    check?.(order);
+    if (!allowedFrom.includes(order.status)) throw invalidStatus();
+
+    await tx.query(
+      `UPDATE orders SET status = $3 WHERE restaurant_id = $1 AND id = $2`,
+      [restaurantId, id, to],
+    );
+    return loadOrder(tx, restaurantId, id);
+  });
+}
+
+export function startPreparing(
+  db: Database,
+  identity: AuthIdentity,
+  id: string,
+) {
+  return changeStatus(db, identity, id, ["pending"], "preparing");
+}
+
+export function markReady(db: Database, identity: AuthIdentity, id: string) {
+  return changeStatus(db, identity, id, ["preparing"], "ready");
+}
+
+export function cancelOrder(db: Database, identity: AuthIdentity, id: string) {
+  const isAdmin = identity.role === "admin";
+
+  return changeStatus(
+    db,
+    identity,
+    id,
+    // El admin cancela en cualquier estado activo; el mesero, solo en pending.
+    isAdmin ? ["pending", "preparing", "ready"] : ["pending"],
+    "cancelled",
+    (order) => {
+      // El mesero solo cancela sus propios pedidos.
+      if (!isAdmin && order.created_by !== identity.userId) {
+        throw new HttpError(
+          403,
+          "FORBIDDEN",
+          "Solo puedes cancelar tus propios pedidos",
+        );
+      }
+    },
+  );
+}
+
+export async function payOrder(
+  db: Database,
+  identity: AuthIdentity,
+  id: string,
+  input: PaymentInput,
+) {
+  const { restaurantId, userId } = identity;
+
+  return db.transaction(async (tx) => {
+    await lockOrder(tx, restaurantId, id);
+
+    // (4) ¿Ya tiene pago? Va ANTES que el estado: un pedido pagado está
+    // 'closed' y, si se mirara el estado primero, este error nunca saldría.
+    const { rows: paid } = await tx.query(
+      `SELECT 1 FROM payments WHERE restaurant_id = $1 AND order_id = $2`,
+      [restaurantId, id],
+    );
+    if (paid.length > 0) throw alreadyPaid();
+
+    // (5) Estado.
+    const { rows: current } = await tx.query<{ status: string }>(
+      `SELECT status FROM orders WHERE restaurant_id = $1 AND id = $2`,
+      [restaurantId, id],
+    );
+    if (current[0]!.status !== "ready") throw invalidStatus();
+
+    // (6) Monto: se compara en la base con NUMERIC, nunca con float.
+    const { rows: match } = await tx.query<{ ok: boolean }>(
+      `SELECT COALESCE(SUM(quantity * unit_price), 0) = $3::numeric AS ok
+         FROM order_items
+        WHERE restaurant_id = $1 AND order_id = $2`,
+      [restaurantId, id, input.amount],
+    );
+    if (!match[0]!.ok) {
+      throw new HttpError(
+        409,
+        "PAYMENT_AMOUNT_MISMATCH",
+        "El monto no coincide con el total del pedido",
+      );
+    }
+
+    try {
+      await tx.query(
+        `INSERT INTO payments (restaurant_id, order_id, amount, method, received_by)
+         VALUES ($1, $2, $3::numeric, $4, $5)`,
+        [restaurantId, id, input.amount, input.method, userId],
+      );
+    } catch (err) {
+      // Red de seguridad: el UNIQUE (restaurant_id, order_id) de la base.
+      if ((err as { code?: string }).code === "23505") throw alreadyPaid();
+      throw err;
+    }
+
+    await tx.query(
+      `UPDATE orders SET status = 'closed' WHERE restaurant_id = $1 AND id = $2`,
+      [restaurantId, id],
+    );
+    return loadOrder(tx, restaurantId, id);
+  });
 }
