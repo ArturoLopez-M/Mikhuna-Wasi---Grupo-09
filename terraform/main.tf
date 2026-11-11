@@ -37,7 +37,7 @@ data "archive_file" "lambda" {
 
 resource "aws_cloudwatch_log_group" "lambda" {
   name              = "/aws/lambda/mikhuna-health"
-  retention_in_days = 7
+  retention_in_days = 365
 }
 
 resource "aws_lambda_function" "health" {
