@@ -35,9 +35,14 @@ data "archive_file" "lambda" {
   output_path = "${path.module}/lambda.zip"
 }
 
+resource "aws_kms_key" "cloudwatch" {
+  description = "KMS key for CloudWatch Logs"
+}
+
 resource "aws_cloudwatch_log_group" "lambda" {
   name              = "/aws/lambda/mikhuna-health"
   retention_in_days = 365
+  kms_key_id        = aws_kms_key.cloudwatch.arn
 }
 
 resource "aws_lambda_function" "health" {
