@@ -13,3 +13,28 @@ export const createOrderSchema = z.strictObject({
 });
 
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;
+
+const orderStatuses = [
+  "pending",
+  "preparing",
+  "ready",
+  "closed",
+  "cancelled",
+] as const;
+
+export const listOrdersQuerySchema = z.object({
+  status: z
+    .string()
+    .transform((s) => s.split(","))
+    .pipe(z.array(z.enum(orderStatuses)).min(1))
+    .optional(),
+  mine: z
+    .enum(["true", "false"])
+    .transform((v) => v === "true")
+    .optional(),
+  sort: z.enum(["createdAt", "-createdAt"]).default("-createdAt"),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+export type ListOrdersQuery = z.infer<typeof listOrdersQuerySchema>;
