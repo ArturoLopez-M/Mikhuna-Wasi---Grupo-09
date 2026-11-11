@@ -1,7 +1,9 @@
+import { z } from "zod";
 import type { Database } from "../../db/pool";
 import type { AuthIdentity } from "../../types/auth";
 import { HttpError, type ErrorDetail } from "../../utils/httpError";
-import type { CreateOrderInput } from "./schemas";
+import { queryOrders } from "./repository";
+import type { CreateOrderInput, ListOrdersQuery } from "./schemas";
 
 interface ProductRow {
   id: string;
@@ -130,4 +132,52 @@ export async function createOrder(
       payment: null,
     };
   });
+}
+export async function listOrders(
+  db: Database,
+  identity: AuthIdentity,
+  query: ListOrdersQuery,
+) {
+  const { orders, total } = await queryOrders(
+    db,
+    identity.restaurantId,
+    {
+      statuses: query.status,
+      createdBy: query.mine ? identity.userId : undefined,
+    },
+    {
+      direction: query.sort === "createdAt" ? "ASC" : "DESC",
+      limit: query.limit,
+      offset: query.offset,
+    },
+  );
+
+  return {
+    data: orders,
+    pagination: { limit: query.limit, offset: query.offset, total },
+  };
+}
+
+export async function getOrder(
+  db: Database,
+  identity: AuthIdentity,
+  id: string,
+) {
+  // Un id mal formado se trata igual que uno inexistente: 404.
+  if (!z.guid().safeParse(id).success) {
+    throw new HttpError(404, "NOT_FOUND", "Recurso no encontrado");
+  }
+
+  const { orders } = await queryOrders(
+    db,
+    identity.restaurantId,
+    { id },
+    { direction: "DESC", limit: 1, offset: 0 },
+  );
+
+  // Un pedido de otro restaurante tampoco aparece: mismo 404.
+  if (orders.length === 0) {
+    throw new HttpError(404, "NOT_FOUND", "Recurso no encontrado");
+  }
+  return orders[0]!;
 }
