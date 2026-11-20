@@ -11,6 +11,19 @@ variable "frontend_bucket" {
 resource "aws_s3_bucket" "frontend" {
   bucket        = var.frontend_bucket
   force_destroy = true
+
+  versioning {
+    enabled = true
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "frontend" {
+  bucket = aws_s3_bucket.frontend.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
 }
 
 resource "aws_s3_object" "index" {
@@ -27,9 +40,14 @@ data "archive_file" "lambda" {
   output_path = "${path.module}/lambda.zip"
 }
 
+resource "aws_kms_key" "cloudwatch" {
+  description = "KMS key for CloudWatch Logs"
+}
+
 resource "aws_cloudwatch_log_group" "lambda" {
   name              = "/aws/lambda/mikhuna-health"
-  retention_in_days = 7
+  retention_in_days = 365
+  kms_key_id        = aws_kms_key.cloudwatch.arn
 }
 
 resource "aws_lambda_function" "health" {
