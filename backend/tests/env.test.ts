@@ -53,3 +53,54 @@ describe("loadEnv", () => {
     expect(message).not.toContain("clave_de_prueba");
   });
 });
+
+describe("loadEnv: Cognito", () => {
+  const pool = "us-east-2_AbCdEf123";
+
+  it("es opcional: sin variables de Cognito la configuración es válida", () => {
+    const env = loadEnv({ DATABASE_URL: validUrl });
+
+    expect(env.COGNITO_USER_POOL_ID).toBeUndefined();
+    expect(env.COGNITO_CLIENT_ID).toBeUndefined();
+  });
+
+  it("acepta las dos variables juntas", () => {
+    const env = loadEnv({
+      DATABASE_URL: validUrl,
+      COGNITO_USER_POOL_ID: pool,
+      COGNITO_CLIENT_ID: "abc123",
+    });
+
+    expect(env.COGNITO_USER_POOL_ID).toBe(pool);
+    expect(env.COGNITO_CLIENT_ID).toBe("abc123");
+  });
+
+  it("falla si solo se define una de las dos", () => {
+    expect(() =>
+      loadEnv({ DATABASE_URL: validUrl, COGNITO_USER_POOL_ID: pool }),
+    ).toThrow(/COGNITO_CLIENT_ID/);
+    expect(() =>
+      loadEnv({ DATABASE_URL: validUrl, COGNITO_CLIENT_ID: "abc123" }),
+    ).toThrow(/COGNITO_CLIENT_ID/);
+  });
+
+  it("falla si el User Pool ID no tiene el formato esperado", () => {
+    expect(() =>
+      loadEnv({
+        DATABASE_URL: validUrl,
+        COGNITO_USER_POOL_ID: "no-es-un-pool",
+        COGNITO_CLIENT_ID: "abc123",
+      }),
+    ).toThrow(/COGNITO_USER_POOL_ID/);
+  });
+
+  it("una variable vacía cuenta como no definida", () => {
+    const env = loadEnv({
+      DATABASE_URL: validUrl,
+      COGNITO_USER_POOL_ID: "",
+      COGNITO_CLIENT_ID: "",
+    });
+
+    expect(env.COGNITO_USER_POOL_ID).toBeUndefined();
+  });
+});
