@@ -15,7 +15,19 @@ const envSchema = z
         /^postgres(ql)?:\/\/.+/,
         "debe empezar con postgresql:// o postgres://",
       ),
-    // Cognito: opcionales. Si faltan, la API rechaza todo con 401 (falla cerrado).
+    // Instancia de lectura de Aurora (endpoint de solo lectura de RDS Proxy).
+    // La usa Lectura y Configuración; si falta, lee de DATABASE_URL.
+    DATABASE_READ_URL: optional(
+      z.string().regex(/^postgres(ql)?:\/\/.+/, "debe empezar con postgresql:// o postgres://"),
+    ),
+    // ElastiCache (Redis). rediss:// cuando el cifrado en tránsito está activo.
+    REDIS_URL: optional(
+      z.string().regex(/^rediss?:\/\/.+/, "debe empezar con redis:// o rediss://"),
+    ),
+    // URL de la etapa de API Gateway WebSocket, para avisar a las pantallas.
+    WEBSOCKET_ENDPOINT: optional(z.url()),
+    // Cognito: valida el token al abrir el WebSocket. Si faltan, no se acepta
+    // ninguna conexión (falla cerrado).
     COGNITO_USER_POOL_ID: optional(
       z
         .string()

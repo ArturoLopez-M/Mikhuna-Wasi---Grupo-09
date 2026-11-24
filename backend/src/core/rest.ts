@@ -2,7 +2,7 @@ import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Database } from "../db/pool";
 import { HttpError } from "../utils/httpError";
 import { dispatch, errorResult, internalErrorResult, invalidJson } from "./dispatch";
-import type { ApiResult, ResolveIdentity, Route } from "./types";
+import type { ApiResult, ResolveIdentity, Route, RouteDeps } from "./types";
 
 function lowerKeys(
   headers: Record<string, string | undefined> | null | undefined,
@@ -30,6 +30,7 @@ export async function handleRestEvent(
   routes: readonly Route[],
   event: APIGatewayProxyEvent,
   resolve: ResolveIdentity,
+  deps: RouteDeps = {},
 ): Promise<ApiResult> {
   const ctx = { method: event.httpMethod, resource: event.resource };
   try {
@@ -48,7 +49,7 @@ export async function handleRestEvent(
       body: parseBody(event.body, event.isBase64Encoded),
       identity,
       requestId: event.requestContext?.requestId,
-    });
+    }, deps);
   } catch (err) {
     if (err instanceof HttpError) return errorResult(err, ctx);
     return internalErrorResult(err);

@@ -1,7 +1,7 @@
 import type { Database } from "../db/pool";
 import type { AuthIdentity } from "../types/auth";
 import { HttpError } from "../utils/httpError";
-import type { ApiRequest, ApiResult, Route } from "./types";
+import type { ApiRequest, ApiResult, Route, RouteDeps } from "./types";
 
 export function findRoute(
   routes: readonly Route[],
@@ -74,6 +74,7 @@ export async function dispatch(
   db: Database,
   routes: readonly Route[],
   req: ApiRequest,
+  deps: RouteDeps = {},
 ): Promise<ApiResult> {
   try {
     const route = findRoute(routes, req.method, req.resource);
@@ -87,7 +88,7 @@ export async function dispatch(
       );
     }
 
-    return await route.handle(db, req);
+    return await route.handle(db, req, deps);
   } catch (err) {
     if (err instanceof HttpError) return errorResult(err, req);
     throw err;

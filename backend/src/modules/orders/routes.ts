@@ -1,3 +1,4 @@
+import { ORDER_CACHE_TTL, orderCacheKey, tryCache } from "../../core/cache";
 import type { ApiRequest, Route } from "../../core/types";
 import { parseInput } from "../../utils/parseInput";
 import {
@@ -43,8 +44,19 @@ export const ordersReadRoutes: readonly Route[] = [
   {
     method: "GET",
     resource: ORDER,
-    async handle(db, req) {
-      return { status: 200, body: await getOrder(db, req.identity, orderId(req)) };
+    // Lee primero de ElastiCache; si no está, de Aurora y lo guarda 60 s.
+    // Las Lambdas de escritura borran la clave cuando el pedido cambia.
+    async handle(db, req, { cache }) {
+      const key = orderCacheKey(req.identity.restaurantId, orderId(req));
+      if (cache) {
+        const hit = await tryCache(() => cache.get(key), null);
+        if (hit) return { status: 200, body: JSON.parse(hit) };
+      }
+      const order = await getOrder(db, req.identity, orderId(req));
+      if (cache) {
+        await tryCache(() => cache.set(key, JSON.stringify(order), ORDER_CACHE_TTL), false);
+      }
+      return { status: 200, body: order };
     },
   },
 ];

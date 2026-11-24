@@ -1,4 +1,5 @@
 import type { Database } from "../db/pool";
+import type { Cache } from "./cache";
 import type { AuthIdentity, Role } from "../types/auth";
 
 // Petición ya autenticada, con el mismo formato venga de API Gateway REST
@@ -29,7 +30,13 @@ export interface Route {
   resource: string;
   // Sin `roles`, la ruta es para todos los roles autenticados.
   roles?: readonly Role[];
-  handle(db: Database, req: ApiRequest): Promise<ApiResult>;
+  handle(db: Database, req: ApiRequest, deps: RouteDeps): Promise<ApiResult>;
+}
+
+// Servicios opcionales que una ruta puede usar (por ejemplo, la caché de
+// lectura). Si faltan, la ruta funciona igual yendo a la base.
+export interface RouteDeps {
+  cache?: Cache;
 }
 
 // Convierte el `sub` de Cognito en la identidad del sistema (restaurante y rol
