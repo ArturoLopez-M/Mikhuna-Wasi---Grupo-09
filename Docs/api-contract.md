@@ -4,21 +4,37 @@ Contrato que siguen backend y frontend. Versión del MVP. Cualquier cambio se di
 
 ## 1. Convenciones
 
-- Prefijo `/api/v1/...`. `GET /health` es público y queda fuera del prefijo.
+- Prefijo `/api/v1/...`. Todo exige autenticación.
 - Rutas en inglés, plural y en minúsculas.
 - JSON en `camelCase` (el backend convierte desde `snake_case`).
 - Fechas en ISO 8601 UTC: `2026-10-28T07:31:40.073Z`. Si algún día hay fechas sin hora: `YYYY-MM-DD`.
 - IDs: UUID como string.
 - Dinero: siempre string con dos decimales, en soles (`"35.00"`). Los cálculos usan aritmética decimal (`NUMERIC`), nunca `float`.
 - El cliente nunca envía precios ni totales. Solo `productId` y `quantity`; el backend copia el precio del producto y calcula los totales.
-- Sin `DELETE` en el MVP. Toda operación exitosa devuelve el recurso con `200` o `201` (no se usa `204`).
+- Sin `DELETE` en el MVP. Toda operación exitosa produce el recurso con `200` o `201` (no se usa `204`).
 - Los campos desconocidos en un cuerpo dan `400`.
+
+### 1.1 Lecturas y escrituras
+
+El camino de cada petición sigue el diagrama de arquitectura:
+
+- **Lecturas (`GET`)**: API Gateway REST → Lambda **Lectura y Configuración**. La respuesta HTTP es la descrita en cada endpoint.
+- **Escrituras (`POST`)**: API Gateway REST deja la petición en la cola SQS del módulo y responde enseguida **`202 Accepted`** con `{ "requestId": "..." }`. La Lambda del módulo la procesa:
+
+| Ruta | Cola y Lambda |
+|---|---|
+| `POST /orders`, `POST /orders/{id}/cancel` | Pedidos |
+| `POST /orders/{id}/start-preparing`, `POST /orders/{id}/mark-ready` | Cocina |
+| `POST /orders/{id}/payment` | Registro de Pagos |
+
+- El **resultado** de una escritura tiene el mismo `status` y cuerpo que describe cada endpoint (por ejemplo `201` con el pedido, o `409 INVALID_ORDER_STATUS`). Llega por WebSocket como `{ "type": "write.result", "requestId", "status", "body" }` (fase 2; mientras tanto solo queda en CloudWatch Logs como `WRITE_RESULT`).
+- Los errores de negocio (`400`, `403`, `404`, `409`) no se reintentan. Un error técnico (base caída, por ejemplo) devuelve el mensaje a la cola; tras **3 intentos** fallidos pasa a la **DLQ** y se dispara una alarma.
 
 ## 2. Autenticación y aislamiento
 
 - Cabecera `Authorization: Bearer <access_token>` de Amazon Cognito (**access token**, no ID token).
-- El backend valida firma, emisor, vencimiento, tipo `access` y `client_id`.
-- Con el `sub` busca al usuario en `users` para obtener restaurante y rol. Si no tiene fila o está inactivo: `403`. No existe restaurante por defecto.
+- El autorizador de Cognito de API Gateway valida firma, emisor y vencimiento, y rechaza con `401` antes de llegar a la cola o a la Lambda.
+- Con el `sub` del token, la Lambda busca al usuario en `users` para obtener restaurante y rol. Si no tiene fila o está inactivo: `403`. No existe restaurante por defecto.
 - El `restaurantId` **nunca** viaja en rutas, cuerpos ni parámetros. Sale de la identidad autenticada.
 - El aislamiento se verifica en todas las operaciones (listas, consultas por ID, modificaciones, cancelaciones, acciones de cocina y pago). Un recurso de otro restaurante responde `404`, igual que uno inexistente.
 - Todo rechazo `401`/`403` se registra en el log como una línea JSON `{"event":"ACCESS_DENIED", status, code, userId, restaurantId, method, path, at}` (RNF05). Nunca incluye el token ni el cuerpo.
@@ -81,12 +97,7 @@ pending -> preparing -> ready -> closed
 
 ### 6.1 Salud
 
-`GET /health` (público). Fuera del prefijo `/api/v1`. Comprueba la conexión a la base de datos con `SELECT 1`:
-
-- `200` y `{ "status": "ok" }` si la base responde.
-- `503` y `{ "status": "error" }` si no responde. La respuesta no revela el motivo; el detalle va solo al log.
-
-Todo lo que cuelga de `/api/v1` exige autenticación.
+No hay endpoint de salud: no forma parte del diagrama. La salud del sistema se observa con las métricas y alarmas de CloudWatch.
 
 ### 6.2 Usuario actual
 
@@ -184,7 +195,7 @@ Pedido completo (misma forma en creación, detalle, lista y acciones):
 - Un mismo producto puede repetirse en varias líneas.
 - El cliente nunca envía `unitPrice`, `productName`, `status`, `createdBy` ni totales.
 - Todo ocurre en una sola transacción.
-- Cabecera opcional `Idempotency-Key` (RNF01/RNF02): de 1 a 100 caracteres ASCII visibles; se recomienda un UUID que el frontend genera **una vez por pedido** y reutiliza en cada reintento. Si el mismo usuario ya creó un pedido con esa clave, se devuelve ese pedido con `201` y la cabecera `Idempotent-Replayed: true`, sin crear otro (también ante dos reintentos simultáneos). La clave es única por usuario y restaurante. Una clave inválida da `400 VALIDATION_ERROR` con `field: "Idempotency-Key"`. El cuerpo del reintento no se compara con el original: reutilizar una clave para otro pedido devuelve el pedido anterior.
+- Cabecera opcional `Idempotency-Key` (RNF01/RNF02): de 1 a 100 caracteres ASCII visibles; se recomienda un UUID que el frontend genera **una vez por pedido** y reutiliza en cada reintento. Si el mismo usuario ya creó un pedido con esa clave, se devuelve ese pedido con `201` y la cabecera `Idempotent-Replayed: true`, sin crear otro (también ante dos reintentos simultáneos). Sin cabecera, se usa el `requestId` de API Gateway como clave, así una reentrega de SQS tampoco duplica el pedido. La clave es única por usuario y restaurante. Una clave inválida da `400 VALIDATION_ERROR` con `field: "Idempotency-Key"`. El cuerpo del reintento no se compara con el original: reutilizar una clave para otro pedido devuelve el pedido anterior.
 - `productId` inexistente o de otro restaurante: `400`, con el mismo mensaje en ambos casos.
 - Producto no disponible: `409 PRODUCT_UNAVAILABLE`, con `details` que indican la línea (por ejemplo `items[1].productId`).
 
@@ -211,7 +222,7 @@ Sin filtros por fecha en el MVP (requieren la zona horaria del restaurante).
 
 ### 6.5 Acciones sobre un pedido
 
-Todas son `POST`, no llevan cuerpo (salvo `payment`), devuelven `200` con el pedido completo, y un cuerpo con campos desconocidos da `400`.
+Todas son `POST`, no llevan cuerpo (salvo `payment`), su resultado es `200` con el pedido completo (sección 1.1), y un cuerpo con campos desconocidos da `400`.
 
 | Acción | Ruta | Quién | Estado requerido | Resultado |
 |---|---|---|---|---|
@@ -245,6 +256,8 @@ Una sola transacción:
 El MVP registra el pago informado por el cajero; no procesa cobros reales.
 
 ## 7. Limitaciones conocidas del MVP
+
+- **Resultado de las escrituras solo en el log:** hasta la fase 2 (WebSocket + ElastiCache) el frontend no recibe el resultado; puede consultar el pedido con `GET`.
 
 - **Sin gestión de usuarios ni restaurantes:** dar de alta empleados o restaurantes es manual (Cognito + `insert` en `users`).
 - **Historial de estados sin endpoint:** cada creación, acción y pago agrega una fila a `order_status_history` (estado anterior, nuevo, usuario y fecha), en la misma transacción. La base impide modificar o borrar ese historial y los pagos. Todavía no hay endpoint para consultarlo.
