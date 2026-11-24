@@ -62,6 +62,10 @@ La solución está prevista para desplegarse en Amazon Web Services (AWS), utili
 | Amazon Aurora PostgreSQL Serverless v2 | Almacenamiento persistente de los datos. |
 | Amazon CloudWatch | Registro y supervisión de la ejecución. |
 
+El informe de diseño de la Primera Unidad agrega Route 53, AWS WAF, API Gateway WebSocket, Amazon SQS con DLQ, Amazon ElastiCache (Redis), Amazon RDS Proxy, AWS Backup y Amazon SNS, sobre una VPC con subredes privadas en dos zonas de disponibilidad.
+
+El estado real de implementación de cada servicio y requisito está en el [README principal](../README.md#estado-de-implementación).
+
 La configuración definitiva de estos servicios se realizará de acuerdo con los requisitos de integración, seguridad y despliegue.
 
 ## Modelo de datos
