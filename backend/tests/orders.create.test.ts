@@ -148,7 +148,7 @@ describe("POST /orders: reglas de negocio", () => {
     await request(t.app).post(URL).send({ ...valid, tableLabel: "  Mesa 4  " });
 
     expect(t.paramsOf(/FROM products/)![0]).toBe(RESTAURANT);
-    expect(t.paramsOf(/INSERT INTO orders/)).toEqual([RESTAURANT, "Mesa 4", null, USER]);
+    expect(t.paramsOf(/INSERT INTO orders/)).toEqual([RESTAURANT, "Mesa 4", null, USER, null]);
     expect(t.paramsOf(/INSERT INTO order_items/)).toEqual([
       RESTAURANT, ORDER, P1, "Lomo saltado", 2, "35.00", null,
     ]);

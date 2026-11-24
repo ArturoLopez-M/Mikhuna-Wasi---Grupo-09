@@ -4,6 +4,7 @@ export interface OrderFilter {
   id?: string;
   statuses?: string[];
   createdBy?: string;
+  idempotencyKey?: string;
 }
 
 export interface OrderPage {
@@ -54,6 +55,10 @@ function buildWhere(restaurantId: string, filter: OrderFilter) {
   if (filter.createdBy) {
     params.push(filter.createdBy);
     conditions.push(`o.created_by = $${params.length}`);
+  }
+  if (filter.idempotencyKey) {
+    params.push(filter.idempotencyKey);
+    conditions.push(`o.idempotency_key = $${params.length}`);
   }
   return { where: conditions.join(" AND "), params };
 }
