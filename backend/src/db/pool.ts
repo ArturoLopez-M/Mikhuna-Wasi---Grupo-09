@@ -30,6 +30,10 @@ export function createDatabase(connectionString: string): Database {
 
     async transaction<T>(fn: (tx: Queryable) => Promise<T>): Promise<T> {
       const client = await pool.connect();
+      // Si el ROLLBACK falla, la conexión quedó en un estado desconocido: se
+      // descarta (release(err)) en vez de devolverla al pool, y se conserva el
+      // error original, que es el que explica la falla.
+      let broken: Error | undefined;
       try {
         await client.query("BEGIN");
         const result = await fn({
@@ -44,10 +48,17 @@ export function createDatabase(connectionString: string): Database {
         await client.query("COMMIT");
         return result;
       } catch (err) {
-        await client.query("ROLLBACK");
+        try {
+          await client.query("ROLLBACK");
+        } catch (rollbackErr) {
+          broken =
+            rollbackErr instanceof Error
+              ? rollbackErr
+              : new Error(String(rollbackErr));
+        }
         throw err;
       } finally {
-        client.release();
+        client.release(broken);
       }
     },
 
