@@ -13,14 +13,14 @@ export interface Cache {
 }
 
 export function createRedisCache(url: string): Cache {
-  // Timeouts cortos y sin reintentos largos: si ElastiCache no responde, se
-  // sigue sin caché en vez de bloquear la petición (RNF07).
+  // Se conecta al crear el cliente y los comandos esperan en cola mientras
+  // termina de conectar (si no, los primeros comandos de cada arranque en frío
+  // de la Lambda fallarían). Los timeouts cortos hacen que, si ElastiCache no
+  // responde, se siga sin caché en vez de bloquear la petición (RNF07).
   const redis = new Redis(url, {
     connectTimeout: 1000,
     commandTimeout: 500,
     maxRetriesPerRequest: 1,
-    enableOfflineQueue: false,
-    lazyConnect: true,
   });
   redis.on("error", (err) => {
     console.error("ElastiCache no disponible:", err.message);
