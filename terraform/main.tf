@@ -40,8 +40,46 @@ data "archive_file" "lambda" {
   output_path = "${path.module}/lambda.zip"
 }
 
+data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
+
+# La política por defecto de una clave KMS solo autoriza a la cuenta. CloudWatch
+# Logs necesita permiso explícito para cifrar con ella; sin esta política, crear
+# el log group cifrado falla con AccessDeniedException.
 resource "aws_kms_key" "cloudwatch" {
-  description = "KMS key for CloudWatch Logs"
+  description         = "KMS key for CloudWatch Logs"
+  enable_key_rotation = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "AdminCuenta"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+        Action    = "kms:*"
+        Resource  = "*"
+      },
+      {
+        Sid       = "CloudWatchLogs"
+        Effect    = "Allow"
+        Principal = { Service = "logs.${data.aws_region.current.name}.amazonaws.com" }
+        Action = [
+          "kms:Encrypt*",
+          "kms:Decrypt*",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:Describe*"
+        ]
+        Resource = "*"
+        Condition = {
+          ArnLike = {
+            "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:*"
+          }
+        }
+      }
+    ]
+  })
 }
 
 resource "aws_cloudwatch_log_group" "lambda" {

@@ -21,6 +21,7 @@ Contrato que siguen backend y frontend. Versión del MVP. Cualquier cambio se di
 - Con el `sub` busca al usuario en `users` para obtener restaurante y rol. Si no tiene fila o está inactivo: `403`. No existe restaurante por defecto.
 - El `restaurantId` **nunca** viaja en rutas, cuerpos ni parámetros. Sale de la identidad autenticada.
 - El aislamiento se verifica en todas las operaciones (listas, consultas por ID, modificaciones, cancelaciones, acciones de cocina y pago). Un recurso de otro restaurante responde `404`, igual que uno inexistente.
+- Todo rechazo `401`/`403` se registra en el log como una línea JSON `{"event":"ACCESS_DENIED", status, code, userId, restaurantId, method, path, at}` (RNF05). Nunca incluye el token ni el cuerpo.
 
 ## 3. Errores
 
@@ -81,11 +82,6 @@ pending -> preparing -> ready -> closed
 ### 6.1 Salud
 
 `GET /health` (público). Fuera del prefijo `/api/v1`. Comprueba la conexión a la base de datos con `SELECT 1`:
-
-- `200` y `{ "status": "ok" }` si la base responde.
-- `503` y `{ "status": "error" }` si no responde. La respuesta no revela el motivo; el detalle va solo al log.
-
-Todo lo que cuelga de `/api/v1` exige autenticación. Comprueba la conexión a la base de datos con `SELECT 1`:
 
 - `200` y `{ "status": "ok" }` si la base responde.
 - `503` y `{ "status": "error" }` si no responde. La respuesta no revela el motivo; el detalle va solo al log.
@@ -172,7 +168,7 @@ Pedido completo (misma forma en creación, detalle, lista y acciones):
 
 - `payment` es `null` hasta que se cobra; luego `{ "amount": "70.00", "method": "cash", "createdAt": "..." }`.
 - `lineTotal` y `total` los calcula el backend con el `unitPrice` guardado en la línea. Cambiar el precio de un producto no altera pedidos existentes.
-- `productName` es copia histórica tomada al crear la línea (requiere la rama `feat/order-item-product-name`).
+- `productName` es copia histórica tomada al crear la línea (columna `order_items.product_name`).
 
 | Método | Ruta | Quién | Éxito |
 |---|---|---|---|
@@ -188,6 +184,7 @@ Pedido completo (misma forma en creación, detalle, lista y acciones):
 - Un mismo producto puede repetirse en varias líneas.
 - El cliente nunca envía `unitPrice`, `productName`, `status`, `createdBy` ni totales.
 - Todo ocurre en una sola transacción.
+- Cabecera opcional `Idempotency-Key` (RNF01/RNF02): de 1 a 100 caracteres ASCII visibles; se recomienda un UUID que el frontend genera **una vez por pedido** y reutiliza en cada reintento. Si el mismo usuario ya creó un pedido con esa clave, se devuelve ese pedido con `201` y la cabecera `Idempotent-Replayed: true`, sin crear otro (también ante dos reintentos simultáneos). La clave es única por usuario y restaurante. Una clave inválida da `400 VALIDATION_ERROR` con `field: "Idempotency-Key"`. El cuerpo del reintento no se compara con el original: reutilizar una clave para otro pedido devuelve el pedido anterior.
 - `productId` inexistente o de otro restaurante: `400`, con el mismo mensaje en ambos casos.
 - Producto no disponible: `409 PRODUCT_UNAVAILABLE`, con `details` que indican la línea (por ejemplo `items[1].productId`).
 
@@ -250,8 +247,8 @@ El MVP registra el pago informado por el cajero; no procesa cobros reales.
 ## 7. Limitaciones conocidas del MVP
 
 - **Sin gestión de usuarios ni restaurantes:** dar de alta empleados o restaurantes es manual (Cognito + `insert` en `users`).
-- **Sin historial de cambios de estado:** `orders` no guarda cuándo cambia de estado, así que no se pueden reconstruir las transiciones ni medir tiempos de cocina. Si el grupo lo exige, se agrega una tabla `order_status_history` en una rama de esquema, sin cambiar este contrato.
-- **Sin idempotencia:** un reintento tras perder la conexión puede duplicar un pedido. Mejora futura: cabecera opcional `Idempotency-Key`.
+- **Historial de estados sin endpoint:** cada creación, acción y pago agrega una fila a `order_status_history` (estado anterior, nuevo, usuario y fecha), en la misma transacción. La base impide modificar o borrar ese historial y los pagos. Todavía no hay endpoint para consultarlo.
+- **Idempotencia solo en crear pedido:** las acciones y el pago ya son seguros ante reintentos por su verificación de estado (un reintento recibe `409 INVALID_ORDER_STATUS` u `ORDER_ALREADY_PAID`, nunca un duplicado); el frontend debe tratar esos `409` tras un reintento como "ya aplicado" y recargar el pedido.
 - **Sin motivo de cancelación.**
 - **Sin pagos parciales ni pasarela de pagos real.**
 - **Sin filtros por fecha** en la lista de pedidos.
@@ -263,4 +260,4 @@ El MVP registra el pago informado por el cajero; no procesa cobros reales.
 - Crear pedido: leer los productos dentro de la misma transacción con `SELECT ... FOR SHARE` (o equivalente) para evitar que la disponibilidad cambie a mitad de la operación.
 - `pg` devuelve los `NUMERIC` como texto; usar aritmética decimal en el servidor, nunca `float`.
 - Cada rama de implementación debe probar el aislamiento (recurso ajeno da `404`) y al menos una prueba por categoría de error.
-- Mini-rama previa: `feat/order-item-product-name` (columna `product_name` en `order_items`; toca `schema.sql`, `seed.sql` y `db/README.md`), antes de las ramas de implementación.
+- La columna `order_items.product_name` ya está en `schema.sql` (la mini-rama `feat/order-item-product-name` quedó integrada).

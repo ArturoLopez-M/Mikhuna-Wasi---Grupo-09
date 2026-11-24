@@ -16,20 +16,88 @@ interface ProductRow {
   is_available: boolean;
 }
 
+// Registra un cambio de estado en el historial de solo agregar (RNF12).
+async function recordStatus(
+  tx: Queryable,
+  identity: AuthIdentity,
+  orderId: string,
+  from: string | null,
+  to: string,
+): Promise<void> {
+  await tx.query(
+    `INSERT INTO order_status_history
+       (restaurant_id, order_id, from_status, to_status, changed_by)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [identity.restaurantId, orderId, from, to, identity.userId],
+  );
+}
+
+// Pedido ya creado por ESTE usuario con la misma Idempotency-Key.
+async function findByIdempotencyKey(
+  db: Queryable,
+  identity: AuthIdentity,
+  idempotencyKey: string,
+) {
+  const { orders } = await queryOrders(
+    db,
+    identity.restaurantId,
+    { createdBy: identity.userId, idempotencyKey },
+    { direction: "DESC", limit: 1, offset: 0 },
+  );
+  return orders[0];
+}
+
+function isIdempotencyConflict(err: unknown): boolean {
+  const e = err as { code?: string; constraint?: string };
+  return e.code === "23505" && e.constraint === "orders_idempotency_key_idx";
+}
+
+// RNF01/RNF02: con Idempotency-Key, un reintento (por ejemplo tras perder la
+// conexión) devuelve el pedido original en vez de crear otro. `replayed`
+// indica si la respuesta corresponde a un pedido ya existente.
 export async function createOrder(
   db: Database,
   identity: AuthIdentity,
   input: CreateOrderInput,
+  idempotencyKey?: string,
+) {
+  if (idempotencyKey) {
+    const existing = await findByIdempotencyKey(db, identity, idempotencyKey);
+    if (existing) return { order: existing, replayed: true };
+  }
+
+  try {
+    const order = await insertOrder(db, identity, input, idempotencyKey);
+    return { order, replayed: false };
+  } catch (err) {
+    // Dos reintentos simultáneos: el índice único deja pasar solo uno; el otro
+    // devuelve el pedido que ganó.
+    if (idempotencyKey && isIdempotencyConflict(err)) {
+      const existing = await findByIdempotencyKey(db, identity, idempotencyKey);
+      if (existing) return { order: existing, replayed: true };
+    }
+    throw err;
+  }
+}
+
+async function insertOrder(
+  db: Database,
+  identity: AuthIdentity,
+  input: CreateOrderInput,
+  idempotencyKey?: string,
 ) {
   const { restaurantId, userId } = identity;
 
   return db.transaction(async (tx) => {
     // 1. Productos de ESTE restaurante. Uno de otro restaurante no aparece.
+    // FOR SHARE: la disponibilidad no puede cambiar a mitad de la operación
+    // (contrato, sección 8).
     const ids = [...new Set(input.items.map((i) => i.productId))];
     const { rows: products } = await tx.query<ProductRow>(
       `SELECT id, name, price, is_available
          FROM products
-        WHERE restaurant_id = $1 AND id = ANY($2::uuid[])`,
+        WHERE restaurant_id = $1 AND id = ANY($2::uuid[])
+          FOR SHARE`,
       [restaurantId, ids],
     );
     const byId = new Map(products.map((p) => [p.id, p]));
@@ -75,12 +143,19 @@ export async function createOrder(
       notes: string | null;
       created_at: Date;
     }>(
-      `INSERT INTO orders (restaurant_id, table_label, notes, created_by)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO orders (restaurant_id, table_label, notes, created_by, idempotency_key)
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING id, table_label, status, notes, created_at`,
-      [restaurantId, input.tableLabel, input.notes ?? null, userId],
+      [
+        restaurantId,
+        input.tableLabel,
+        input.notes ?? null,
+        userId,
+        idempotencyKey ?? null,
+      ],
     );
     const order = orderRows[0]!;
+    await recordStatus(tx, identity, order.id, null, order.status);
 
     // 5. Líneas: el precio y el nombre se COPIAN del producto, no del cliente.
     const items = [];
@@ -262,6 +337,7 @@ async function changeStatus(
       `UPDATE orders SET status = $3 WHERE restaurant_id = $1 AND id = $2`,
       [restaurantId, id, to],
     );
+    await recordStatus(tx, identity, id, order.status, to);
     return loadOrder(tx, restaurantId, id);
   });
 }
@@ -358,6 +434,7 @@ export async function payOrder(
       `UPDATE orders SET status = 'closed' WHERE restaurant_id = $1 AND id = $2`,
       [restaurantId, id],
     );
+    await recordStatus(tx, identity, id, "ready", "closed");
     return loadOrder(tx, restaurantId, id);
   });
 }

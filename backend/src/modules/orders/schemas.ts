@@ -14,6 +14,13 @@ export const createOrderSchema = z.strictObject({
 
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 
+// Cabecera opcional Idempotency-Key: 1 a 100 caracteres ASCII visibles
+// (por ejemplo, un UUID que el frontend genera una vez por pedido).
+export const idempotencyKeySchema = z
+  .string()
+  .regex(/^[\x21-\x7E]{1,100}$/, "Idempotency-Key inválida")
+  .optional();
+
 const orderStatuses = [
   "pending",
   "preparing",

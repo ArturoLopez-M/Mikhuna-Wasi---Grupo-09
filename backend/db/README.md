@@ -2,7 +2,7 @@
 
 PostgreSQL. Esta carpeta tiene el esquema y los datos de ejemplo para desarrollo local.
 
-- `schema.sql`: crea las 6 tablas (`restaurants`, `users`, `products`, `orders`, `order_items`, `payments`). Está pensado para ejecutarse sobre una base **vacía**.
+- `schema.sql`: crea las 7 tablas (`restaurants`, `users`, `products`, `orders`, `order_items`, `payments`, `order_status_history`), los índices y los triggers de solo agregar. Está pensado para ejecutarse sobre una base **vacía**: no hay migraciones, así que una base creada con una versión anterior debe recrearse (ver "reiniciar la base" abajo).
 - `seed.sql`: datos de ejemplo **solo para desarrollo**. Los `cognito_sub` son ficticios: al integrar Cognito hay que reemplazarlos por los `sub` reales de usuarios de prueba.
 
 ## Decisiones de diseño
@@ -16,6 +16,8 @@ PostgreSQL. Esta carpeta tiene el esquema y los datos de ejemplo para desarrollo
 - **Estados del pedido:** `pending` → `preparing` → `ready` → `closed`, más `cancelled`. Son `TEXT` con `CHECK`. La base valida los valores permitidos, pero **no las transiciones**: eso lo controla el backend, según el rol.
 - **Roles:** `admin`, `waiter`, `kitchen`, `cashier`.
 - **Pagos:** un pago por pedido (MVP). El monto contra el total lo valida el backend.
+- **Idempotencia (RNF01/RNF02):** `orders.idempotency_key` guarda la cabecera `Idempotency-Key`. El índice único parcial `(restaurant_id, created_by, idempotency_key)` garantiza que dos reintentos simultáneos no creen dos pedidos.
+- **Historial (RNF12):** `order_status_history` registra cada cambio de estado (anterior, nuevo, usuario, fecha), incluida la creación (`from_status` NULL). Junto con `payments`, es de **solo agregar**: un trigger rechaza `UPDATE`, `DELETE` y `TRUNCATE`. Las correcciones se hacen con las acciones autorizadas (por ejemplo, cancelar).
 
 ## Probar localmente con Docker
 

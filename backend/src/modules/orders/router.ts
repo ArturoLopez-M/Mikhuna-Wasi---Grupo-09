@@ -5,6 +5,7 @@ import { parseInput } from "../../utils/parseInput";
 import {
   createOrderSchema,
   emptyBodySchema,
+  idempotencyKeySchema,
   listOrdersQuerySchema,
   paymentSchema,
 } from "./schemas";
@@ -33,7 +34,14 @@ export function createOrdersRouter({ db }: ApiDependencies): Router {
 
   router.post("/", requireRole("admin", "waiter"), async (req, res) => {
     const input = parseInput(createOrderSchema, req.body);
-    const order = await createOrder(db, req.identity!, input);
+    const key = parseInput(
+      idempotencyKeySchema,
+      req.header("idempotency-key"),
+      "Idempotency-Key",
+    );
+    const { order, replayed } = await createOrder(db, req.identity!, input, key);
+    // Reintento reconocido: mismo pedido, misma respuesta, sin duplicar.
+    if (replayed) res.setHeader("Idempotent-Replayed", "true");
     res.status(201).json(order);
   });
 
