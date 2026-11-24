@@ -15,7 +15,12 @@ export interface OrderPage {
 
 interface OrderRow {
   id: string;
-  table_label: string;
+  service_type: string;
+  table_label: string | null;
+  delivery_address: string | null;
+  delivery_status: string | null;
+  assigned_to: string | null;
+  assigned_name: string | null;
   status: string;
   notes: string | null;
   created_at: Date;
@@ -63,6 +68,16 @@ function buildWhere(restaurantId: string, filter: OrderFilter) {
   return { where: conditions.join(" AND "), params };
 }
 
+// Datos de la entrega; null en los pedidos para consumir en el local.
+function deliveryView(r: OrderRow) {
+  if (r.service_type !== "delivery") return null;
+  return {
+    address: r.delivery_address,
+    status: r.delivery_status,
+    assignedTo: r.assigned_to ? { id: r.assigned_to, fullName: r.assigned_name } : null,
+  };
+}
+
 export async function queryOrders(
   db: Queryable,
   restaurantId: string,
@@ -78,7 +93,9 @@ export async function queryOrders(
 
   // page.direction solo puede ser "ASC" o "DESC" (lo fija el servicio).
   const { rows } = await db.query<OrderRow>(
-    `SELECT o.id, o.table_label, o.status, o.notes, o.created_at, o.created_by,
+    `SELECT o.id, o.service_type, o.table_label, o.delivery_address,
+            o.delivery_status, o.assigned_to, d.full_name AS assigned_name,
+            o.status, o.notes, o.created_at, o.created_by,
             u.full_name,
             COALESCE((SELECT SUM(oi.quantity * oi.unit_price)
                         FROM order_items oi
@@ -90,6 +107,8 @@ export async function queryOrders(
        FROM orders o
        JOIN users u
          ON u.restaurant_id = o.restaurant_id AND u.id = o.created_by
+       LEFT JOIN users d
+         ON d.restaurant_id = o.restaurant_id AND d.id = o.assigned_to
        LEFT JOIN payments p
          ON p.restaurant_id = o.restaurant_id AND p.order_id = o.id
       WHERE ${where}
@@ -120,7 +139,9 @@ export async function queryOrders(
 
   const orders = rows.map((r) => ({
     id: r.id,
+    serviceType: r.service_type,
     tableLabel: r.table_label,
+    delivery: deliveryView(r),
     status: r.status,
     notes: r.notes,
     createdBy: { id: r.created_by, fullName: r.full_name },

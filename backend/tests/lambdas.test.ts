@@ -4,6 +4,7 @@ import { createQueueHandler, processMessage } from "../src/core/queue";
 import { handleRestEvent, toProxyResult } from "../src/core/rest";
 import type { ResolveIdentity } from "../src/core/types";
 import { routes as cocinaRoutes } from "../src/lambdas/cocina/index";
+import { routes as deliveryRoutes } from "../src/lambdas/delivery/index";
 import { routes as lecturaRoutes } from "../src/lambdas/lectura-config/index";
 import { routes as pagosRoutes } from "../src/lambdas/pagos/index";
 import { routes as pedidosRoutes } from "../src/lambdas/pedidos/index";
@@ -30,8 +31,26 @@ describe("cada Lambda atiende solo las rutas de su módulo (diagrama)", () => {
   const resources = (rs: readonly { method: string; resource: string }[]) =>
     rs.map((r) => `${r.method} ${r.resource}`).sort();
 
-  it("Lectura y Configuración: solo consultas", () => {
-    expect(resources(lecturaRoutes)).toEqual(["GET /api/v1/orders", "GET /api/v1/orders/{id}"]);
+  it("Lectura y Configuración: consultas, perfil y configuración", () => {
+    expect(resources(lecturaRoutes)).toEqual([
+      "GET /api/v1/me",
+      "GET /api/v1/orders",
+      "GET /api/v1/orders/{id}",
+      "GET /api/v1/products",
+      "GET /api/v1/restaurant/config",
+      "PATCH /api/v1/products/{id}",
+      "PATCH /api/v1/restaurant/config",
+      "POST /api/v1/products",
+    ]);
+  });
+
+  it("Delivery: despachar, entregar, marcar fallido y asignar", () => {
+    expect(resources(deliveryRoutes)).toEqual([
+      "POST /api/v1/orders/{id}/assign",
+      "POST /api/v1/orders/{id}/deliver",
+      "POST /api/v1/orders/{id}/delivery-failed",
+      "POST /api/v1/orders/{id}/dispatch",
+    ]);
   });
 
   it("Pedidos: crear y cancelar", () => {

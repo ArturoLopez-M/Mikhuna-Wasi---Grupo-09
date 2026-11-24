@@ -1,5 +1,5 @@
 // Roles del sistema (Docs/api-contract.md, sección 4).
-export const ROLES = ["admin", "waiter", "kitchen", "cashier"] as const;
+export const ROLES = ["admin", "waiter", "kitchen", "cashier", "delivery"] as const;
 export type Role = (typeof ROLES)[number];
 
 // Identidad del usuario autenticado. La rellena el middleware de autenticación

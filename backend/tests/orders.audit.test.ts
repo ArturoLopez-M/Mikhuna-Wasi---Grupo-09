@@ -8,7 +8,7 @@ import {
   RESTAURANT,
   USER,
   isolated,
-  noPriorOrder,
+  createDefaults,
   orderView,
   scriptedDb,
   type Handler,
@@ -22,7 +22,7 @@ const valid = { tableLabel: "Mesa 4", items: [{ productId: P1, quantity: 2 }] };
 const KEY = "9f1c2d3e-0000-4000-8000-000000000001";
 
 function setup(role: Role, handlers: Handler[] = []) {
-  const fake = scriptedDb([...handlers, ...noPriorOrder]);
+  const fake = scriptedDb([...handlers, ...createDefaults]);
   const app = testApp({ db: fake.db, identity: asRole(role) });
   return { ...fake, app };
 }
@@ -66,7 +66,7 @@ describe("POST /orders con Idempotency-Key", () => {
 
     expect(res.status).toBe(201);
     expect(res.headers["idempotent-replayed"]).toBeUndefined();
-    expect(t.paramsOf(/INSERT INTO orders/)).toEqual([RESTAURANT, "Mesa 4", null, USER, KEY]);
+    expect(t.paramsOf(/INSERT INTO orders/)).toEqual([RESTAURANT, "Mesa 4", null, USER, KEY, "dine_in", null, null]);
     expect(t.events).toEqual(["BEGIN", "COMMIT"]);
   });
 
@@ -113,7 +113,7 @@ describe("Historial de estados (RNF12)", () => {
     const t = setup("waiter", createHandlers);
     await request(t.app).post(URL).send(valid);
 
-    expect(t.paramsOf(history)).toEqual([RESTAURANT, ORDER, null, "pending", USER]);
+    expect(t.paramsOf(history)).toEqual([RESTAURANT, ORDER, null, "pending", USER, "status"]);
     expect(isolated(t.calls)).toBe(true);
   });
 
@@ -125,7 +125,7 @@ describe("Historial de estados (RNF12)", () => {
     const res = await request(t.app).post(`${URL}/${ORDER}/start-preparing`);
 
     expect(res.status).toBe(200);
-    expect(t.paramsOf(history)).toEqual([RESTAURANT, ORDER, "pending", "preparing", USER]);
+    expect(t.paramsOf(history)).toEqual([RESTAURANT, ORDER, "pending", "preparing", USER, "status"]);
     expect(t.events).toEqual(["BEGIN", "COMMIT"]);
   });
 
@@ -142,7 +142,7 @@ describe("Historial de estados (RNF12)", () => {
       .send({ method: "cash", amount: "70.00" });
 
     expect(res.status).toBe(200);
-    expect(t.paramsOf(history)).toEqual([RESTAURANT, ORDER, "ready", "closed", USER]);
+    expect(t.paramsOf(history)).toEqual([RESTAURANT, ORDER, "ready", "closed", USER, "status"]);
   });
 
   it("si el historial falla, el cambio se revierte y el mensaje vuelve a la cola", async () => {

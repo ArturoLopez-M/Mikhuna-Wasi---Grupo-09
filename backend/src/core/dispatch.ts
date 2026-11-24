@@ -88,7 +88,8 @@ export async function dispatch(
       );
     }
 
-    return await route.handle(db, req, deps);
+    const target = route.write ? (deps.writeDb ?? db) : db;
+    return await route.handle(target, req, deps);
   } catch (err) {
     if (err instanceof HttpError) return errorResult(err, req);
     throw err;

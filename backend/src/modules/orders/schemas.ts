@@ -6,11 +6,41 @@ const orderItemSchema = z.strictObject({
   notes: z.string().trim().max(200).nullable().optional(),
 });
 
-export const createOrderSchema = z.strictObject({
-  tableLabel: z.string().trim().min(1).max(30),
-  notes: z.string().trim().max(500).nullable().optional(),
-  items: z.array(orderItemSchema).min(1).max(50),
-});
+// En local: tableLabel obligatorio. Delivery: deliveryAddress obligatoria y
+// sin tableLabel. Por defecto el pedido es para consumir en el local.
+export const createOrderSchema = z
+  .strictObject({
+    serviceType: z.enum(["dine_in", "delivery"]).default("dine_in"),
+    tableLabel: z.string().trim().min(1).max(30).optional(),
+    deliveryAddress: z.string().trim().min(1).max(300).optional(),
+    notes: z.string().trim().max(500).nullable().optional(),
+    items: z.array(orderItemSchema).min(1).max(50),
+  })
+  .superRefine((o, ctx) => {
+    if (o.serviceType === "dine_in") {
+      if (o.tableLabel === undefined) {
+        ctx.addIssue({ code: "custom", path: ["tableLabel"], message: "La mesa es obligatoria" });
+      }
+      if (o.deliveryAddress !== undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["deliveryAddress"],
+          message: "Un pedido en local no lleva dirección",
+        });
+      }
+    } else {
+      if (o.deliveryAddress === undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["deliveryAddress"],
+          message: "La dirección es obligatoria",
+        });
+      }
+      if (o.tableLabel !== undefined) {
+        ctx.addIssue({ code: "custom", path: ["tableLabel"], message: "Un delivery no lleva mesa" });
+      }
+    }
+  });
 
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 

@@ -1,5 +1,6 @@
 import type { Database } from "../db/pool";
 import type { Cache } from "./cache";
+import type { Notifier } from "./realtime";
 import type { AuthIdentity, Role } from "../types/auth";
 
 // Petición ya autenticada, con el mismo formato venga de API Gateway REST
@@ -30,6 +31,9 @@ export interface Route {
   resource: string;
   // Sin `roles`, la ruta es para todos los roles autenticados.
   roles?: readonly Role[];
+  // Ruta que guarda datos (por ejemplo, la configuración): usa la instancia
+  // de escritura de Aurora aunque la Lambda lea de la de lectura.
+  write?: boolean;
   handle(db: Database, req: ApiRequest, deps: RouteDeps): Promise<ApiResult>;
 }
 
@@ -37,6 +41,8 @@ export interface Route {
 // lectura). Si faltan, la ruta funciona igual yendo a la base.
 export interface RouteDeps {
   cache?: Cache;
+  writeDb?: Database;
+  notifier?: Notifier;
 }
 
 // Convierte el `sub` de Cognito en la identidad del sistema (restaurante y rol

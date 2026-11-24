@@ -9,7 +9,7 @@ import {
   RESTAURANT,
   USER,
   isolated,
-  noPriorOrder,
+  createDefaults,
   scriptedDb,
   type Handler,
 } from "./helpers/scriptedDb";
@@ -18,7 +18,7 @@ const URL = "/api/v1/orders";
 const valid = { tableLabel: "Mesa 4", items: [{ productId: P1, quantity: 2 }] };
 
 function setup(role: Role, handlers: Handler[] = []) {
-  const fake = scriptedDb([...handlers, ...noPriorOrder]);
+  const fake = scriptedDb([...handlers, ...createDefaults]);
   const app = testApp({ db: fake.db, identity: asRole(role) });
   return { ...fake, app };
 }
@@ -148,7 +148,7 @@ describe("POST /orders: reglas de negocio", () => {
     await request(t.app).post(URL).send({ ...valid, tableLabel: "  Mesa 4  " });
 
     expect(t.paramsOf(/FROM products/)![0]).toBe(RESTAURANT);
-    expect(t.paramsOf(/INSERT INTO orders/)).toEqual([RESTAURANT, "Mesa 4", null, USER, REQUEST_ID]);
+    expect(t.paramsOf(/INSERT INTO orders/)).toEqual([RESTAURANT, "Mesa 4", null, USER, REQUEST_ID, "dine_in", null, null]);
     expect(t.paramsOf(/INSERT INTO order_items/)).toEqual([
       RESTAURANT, ORDER, P1, "Lomo saltado", 2, "35.00", null,
     ]);

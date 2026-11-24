@@ -84,6 +84,17 @@ async function sendAll(
   );
 }
 
+// Aviso a todas las pantallas abiertas de un restaurante.
+export async function notifyRestaurant(
+  cache: Cache,
+  notifier: Notifier,
+  restaurantId: string,
+  payload: unknown,
+): Promise<void> {
+  const all = await tryCache(() => cache.members(restaurantKey(restaurantId)), []);
+  await sendAll(cache, notifier, all, payload);
+}
+
 function isOrder(body: unknown): body is { id: string } {
   return typeof body === "object" && body !== null && "id" in body;
 }
@@ -107,7 +118,9 @@ export async function notifyWriteResult(
   });
 
   if (result.status >= 200 && result.status < 300 && isOrder(result.body)) {
-    const all = await tryCache(() => cache.members(restaurantKey(identity.restaurantId)), []);
-    await sendAll(cache, notifier, all, { type: "order.updated", order: result.body });
+    await notifyRestaurant(cache, notifier, identity.restaurantId, {
+      type: "order.updated",
+      order: result.body,
+    });
   }
 }

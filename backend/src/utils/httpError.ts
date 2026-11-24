@@ -9,6 +9,8 @@ export type ErrorCode =
   | "PAYMENT_AMOUNT_MISMATCH"
   | "PRODUCT_UNAVAILABLE"
   | "PRODUCT_LIMIT_REACHED"
+  | "SERVICE_MODE_NOT_ALLOWED"
+  | "INVALID_DELIVERY_STATUS"
   | "INTERNAL_ERROR";
 
 export interface ErrorDetail {

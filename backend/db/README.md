@@ -14,10 +14,12 @@ PostgreSQL. Esta carpeta tiene el esquema y los datos de ejemplo para desarrollo
 - **Dinero:** `NUMERIC(10,2)` en soles. Cada línea de pedido guarda su `unit_price` copiado del producto al crearla.
 - **Total del pedido:** no se almacena, se calcula sumando `quantity * unit_price`.
 - **Estados del pedido:** `pending` → `preparing` → `ready` → `closed`, más `cancelled`. Son `TEXT` con `CHECK`. La base valida los valores permitidos, pero **no las transiciones**: eso lo controla el backend, según el rol.
-- **Roles:** `admin`, `waiter`, `kitchen`, `cashier`.
+- **Roles:** `admin`, `waiter`, `kitchen`, `cashier`, `delivery` (repartidor).
+- **Modalidad (RNF08):** `restaurants.service_mode` es `dine_in`, `delivery` o `both`.
+- **Delivery:** `orders.service_type` es `dine_in` (con `table_label`) o `delivery` (con `delivery_address`, `delivery_status` y, al despachar, `assigned_to`). Un `CHECK` impide mezclar los dos casos. El estado de la entrega va aparte del estado de cocina.
 - **Pagos:** un pago por pedido (MVP). El monto contra el total lo valida el backend.
 - **Idempotencia (RNF01/RNF02):** `orders.idempotency_key` guarda la cabecera `Idempotency-Key`. El índice único parcial `(restaurant_id, created_by, idempotency_key)` garantiza que dos reintentos simultáneos no creen dos pedidos.
-- **Historial (RNF12):** `order_status_history` registra cada cambio de estado (anterior, nuevo, usuario, fecha), incluida la creación (`from_status` NULL). Junto con `payments`, es de **solo agregar**: un trigger rechaza `UPDATE`, `DELETE` y `TRUNCATE`. Las correcciones se hacen con las acciones autorizadas (por ejemplo, cancelar).
+- **Historial (RNF12):** `order_status_history` registra cada cambio de estado (anterior, nuevo, usuario, fecha), incluida la creación (`from_status` NULL). `field` indica si cambió el estado del pedido (`status`) o el de la entrega (`delivery_status`). Junto con `payments`, es de **solo agregar**: un trigger rechaza `UPDATE`, `DELETE` y `TRUNCATE`. Las correcciones se hacen con las acciones autorizadas (por ejemplo, cancelar).
 
 ## Probar localmente con Docker
 

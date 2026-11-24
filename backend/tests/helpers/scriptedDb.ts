@@ -61,7 +61,9 @@ export function isolated(calls: Call[]): boolean {
       (c) =>
         c.params[0] === RESTAURANT &&
         (/restaurant_id\s*=\s*\$1/.test(c.text) ||
-          /INSERT INTO \w+\s*\(\s*restaurant_id/.test(c.text)),
+          /INSERT INTO \w+\s*\(\s*restaurant_id/.test(c.text) ||
+          // La fila del propio restaurante (modalidad, bloqueo del menú).
+          /\brestaurants\b[\s\S]*\bid\s*=\s*\$1/.test(c.text)),
     )
   );
 }
@@ -96,6 +98,11 @@ export function orderView(
                 notes: null,
                 created_at: new Date("2026-01-01T00:00:00.000Z"),
                 created_by: USER,
+                service_type: "dine_in",
+                delivery_address: null,
+                delivery_status: null,
+                assigned_to: null,
+                assigned_name: null,
                 full_name: "Ana Pérez",
                 total: "70.00",
                 pay_amount: null,
@@ -123,11 +130,12 @@ export function orderView(
   ];
 }
 
-// Al crear un pedido siempre se busca primero uno anterior con la misma clave
-// de idempotencia (la cabecera o el id de la petición). Estas respuestas por
-// defecto dicen "no existe"; los manejadores explícitos de cada prueba ganan
-// porque van antes.
-export const noPriorOrder: Handler[] = [
+// Respuestas por defecto al crear un pedido. Primero se busca uno anterior con
+// la misma clave de idempotencia (la cabecera o el id de la petición): "no
+// existe". Luego se lee la modalidad del restaurante: "both". Los manejadores
+// explícitos de cada prueba ganan porque van antes.
+export const createDefaults: Handler[] = [
   [/SELECT count\(\*\)::int AS count/, () => [{ count: 0 }]],
   [/JOIN users u/, () => []],
+  [/SELECT service_mode FROM restaurants/, () => [{ service_mode: "both" }]],
 ];

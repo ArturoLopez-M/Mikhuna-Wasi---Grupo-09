@@ -1,16 +1,17 @@
 -- Mikhuna Wasi: datos de ejemplo SOLO para desarrollo local.
 -- Los cognito_sub son ficticios y no corresponden a usuarios reales.
 
-INSERT INTO restaurants (id, name) VALUES
-    ('11111111-1111-1111-1111-111111111111', 'Restaurante A'),
-    ('22222222-2222-2222-2222-222222222222', 'Restaurante B');
+INSERT INTO restaurants (id, name, service_mode) VALUES
+    ('11111111-1111-1111-1111-111111111111', 'Restaurante A', 'both'),
+    ('22222222-2222-2222-2222-222222222222', 'Restaurante B', 'dine_in');
 
 INSERT INTO users (id, restaurant_id, cognito_sub, email, full_name, role) VALUES
     ('a0000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'seed-sub-admin-a',   'admin@a.test',   'Admin A',   'admin'),
     ('a0000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'seed-sub-waiter-a',  'mesero@a.test',  'Mesero A',  'waiter'),
     ('a0000000-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111', 'seed-sub-kitchen-a', 'cocina@a.test',  'Cocina A',  'kitchen'),
     ('a0000000-0000-0000-0000-000000000004', '11111111-1111-1111-1111-111111111111', 'seed-sub-cashier-a', 'cajero@a.test',  'Cajero A',  'cashier'),
-    ('a0000000-0000-0000-0000-000000000005', '22222222-2222-2222-2222-222222222222', 'seed-sub-admin-b',   'admin@b.test',   'Admin B',   'admin');
+    ('a0000000-0000-0000-0000-000000000005', '22222222-2222-2222-2222-222222222222', 'seed-sub-admin-b',   'admin@b.test',   'Admin B',   'admin'),
+    ('a0000000-0000-0000-0000-000000000006', '11111111-1111-1111-1111-111111111111', 'seed-sub-delivery-a', 'reparto@a.test', 'Reparto A', 'delivery');
 
 INSERT INTO products (id, restaurant_id, name, description, price, is_available) VALUES
     ('b0000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Ceviche',         'Pescado fresco en leche de tigre', 35.00, TRUE),
@@ -45,3 +46,17 @@ INSERT INTO order_status_history (restaurant_id, order_id, from_status, to_statu
     ('11111111-1111-1111-1111-111111111111', 'c0000000-0000-0000-0000-000000000002', 'ready',     'closed',    'a0000000-0000-0000-0000-000000000004'),
     ('22222222-2222-2222-2222-222222222222', 'c0000000-0000-0000-0000-000000000003', NULL,        'pending',   'a0000000-0000-0000-0000-000000000005'),
     ('22222222-2222-2222-2222-222222222222', 'c0000000-0000-0000-0000-000000000003', 'pending',   'preparing', 'a0000000-0000-0000-0000-000000000005');
+
+-- Pedido de delivery de A: listo en cocina y en camino con el repartidor.
+INSERT INTO orders (id, restaurant_id, service_type, delivery_address, delivery_status, assigned_to, status, created_by) VALUES
+    ('c0000000-0000-0000-0000-000000000004', '11111111-1111-1111-1111-111111111111', 'delivery', 'Av. Larco 123, Trujillo', 'on_the_way', 'a0000000-0000-0000-0000-000000000006', 'ready', 'a0000000-0000-0000-0000-000000000002');
+
+INSERT INTO order_items (restaurant_id, order_id, product_id, product_name, quantity, unit_price) VALUES
+    ('11111111-1111-1111-1111-111111111111', 'c0000000-0000-0000-0000-000000000004', 'b0000000-0000-0000-0000-000000000002', 'Lomo saltado', 2, 28.50);
+
+INSERT INTO order_status_history (restaurant_id, order_id, field, from_status, to_status, changed_by) VALUES
+    ('11111111-1111-1111-1111-111111111111', 'c0000000-0000-0000-0000-000000000004', 'status',          NULL,               'pending',          'a0000000-0000-0000-0000-000000000002'),
+    ('11111111-1111-1111-1111-111111111111', 'c0000000-0000-0000-0000-000000000004', 'delivery_status', NULL,               'pending_dispatch', 'a0000000-0000-0000-0000-000000000002'),
+    ('11111111-1111-1111-1111-111111111111', 'c0000000-0000-0000-0000-000000000004', 'status',          'pending',          'preparing',        'a0000000-0000-0000-0000-000000000003'),
+    ('11111111-1111-1111-1111-111111111111', 'c0000000-0000-0000-0000-000000000004', 'status',          'preparing',        'ready',            'a0000000-0000-0000-0000-000000000003'),
+    ('11111111-1111-1111-1111-111111111111', 'c0000000-0000-0000-0000-000000000004', 'delivery_status', 'pending_dispatch', 'on_the_way',       'a0000000-0000-0000-0000-000000000006');

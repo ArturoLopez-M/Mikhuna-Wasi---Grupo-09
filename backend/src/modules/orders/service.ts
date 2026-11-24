@@ -17,19 +17,44 @@ interface ProductRow {
 }
 
 // Registra un cambio de estado en el historial de solo agregar (RNF12).
-async function recordStatus(
+// `field` dice qué estado cambió: el del pedido o el de la entrega.
+export async function recordStatus(
   tx: Queryable,
   identity: AuthIdentity,
   orderId: string,
   from: string | null,
   to: string,
+  field: "status" | "delivery_status" = "status",
 ): Promise<void> {
   await tx.query(
     `INSERT INTO order_status_history
-       (restaurant_id, order_id, from_status, to_status, changed_by)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [identity.restaurantId, orderId, from, to, identity.userId],
+       (restaurant_id, order_id, from_status, to_status, changed_by, field)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [identity.restaurantId, orderId, from, to, identity.userId, field],
   );
+}
+
+// RNF08: el restaurante solo acepta los pedidos de su modalidad. FOR SHARE:
+// la modalidad no puede cambiar a mitad de la creación del pedido.
+async function checkServiceMode(
+  tx: Queryable,
+  restaurantId: string,
+  serviceType: "dine_in" | "delivery",
+): Promise<void> {
+  const { rows } = await tx.query<{ service_mode: string }>(
+    `SELECT service_mode FROM restaurants WHERE id = $1 FOR SHARE`,
+    [restaurantId],
+  );
+  const mode = rows[0]?.service_mode;
+  if (mode !== "both" && mode !== serviceType) {
+    throw new HttpError(
+      409,
+      "SERVICE_MODE_NOT_ALLOWED",
+      serviceType === "delivery"
+        ? "Este restaurante no atiende delivery"
+        : "Este restaurante no atiende en el local",
+    );
+  }
 }
 
 // Pedido ya creado por ESTE usuario con la misma Idempotency-Key.
@@ -89,6 +114,9 @@ async function insertOrder(
   const { restaurantId, userId } = identity;
 
   return db.transaction(async (tx) => {
+    // 0. La modalidad del restaurante permite este tipo de pedido.
+    await checkServiceMode(tx, restaurantId, input.serviceType);
+
     // 1. Productos de ESTE restaurante. Uno de otro restaurante no aparece.
     // FOR SHARE: la disponibilidad no puede cambiar a mitad de la operación
     // (contrato, sección 8).
@@ -136,26 +164,34 @@ async function insertOrder(
     }
 
     // 4. Cabecera del pedido (status 'pending' por defecto en la base).
+    const isDelivery = input.serviceType === "delivery";
     const { rows: orderRows } = await tx.query<{
       id: string;
-      table_label: string;
+      table_label: string | null;
       status: string;
       notes: string | null;
       created_at: Date;
     }>(
-      `INSERT INTO orders (restaurant_id, table_label, notes, created_by, idempotency_key)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO orders (restaurant_id, table_label, notes, created_by, idempotency_key,
+                           service_type, delivery_address, delivery_status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING id, table_label, status, notes, created_at`,
       [
         restaurantId,
-        input.tableLabel,
+        input.tableLabel ?? null,
         input.notes ?? null,
         userId,
         idempotencyKey ?? null,
+        input.serviceType,
+        input.deliveryAddress ?? null,
+        isDelivery ? "pending_dispatch" : null,
       ],
     );
     const order = orderRows[0]!;
     await recordStatus(tx, identity, order.id, null, order.status);
+    if (isDelivery) {
+      await recordStatus(tx, identity, order.id, null, "pending_dispatch", "delivery_status");
+    }
 
     // 5. Líneas: el precio y el nombre se COPIAN del producto, no del cliente.
     const items = [];
@@ -201,7 +237,11 @@ async function insertOrder(
 
     return {
       id: order.id,
+      serviceType: input.serviceType,
       tableLabel: order.table_label,
+      delivery: isDelivery
+        ? { address: input.deliveryAddress!, status: "pending_dispatch", assignedTo: null }
+        : null,
       status: order.status,
       notes: order.notes,
       createdBy: { id: userId, fullName: userRows[0]!.full_name },
@@ -264,10 +304,13 @@ export async function getOrder(
 // Acciones sobre un pedido (contrato, sección 6.5)
 // ---------------------------------------------------------------------------
 
-interface LockedOrder {
+export interface LockedOrder {
   id: string;
   status: string;
   created_by: string;
+  service_type?: string;
+  delivery_status?: string | null;
+  assigned_to?: string | null;
 }
 
 function notFound(): HttpError {
@@ -288,7 +331,7 @@ function alreadyPaid(): HttpError {
 
 // Verificación (2): el pedido existe en el restaurante del usuario. Lo bloquea
 // con FOR UPDATE: dos acciones simultáneas sobre el mismo pedido se turnan.
-async function lockOrder(
+export async function lockOrder(
   tx: Queryable,
   restaurantId: string,
   id: string,
@@ -296,7 +339,7 @@ async function lockOrder(
   if (!z.guid().safeParse(id).success) throw notFound();
 
   const { rows } = await tx.query<LockedOrder>(
-    `SELECT id, status, created_by
+    `SELECT id, status, created_by, service_type, delivery_status, assigned_to
        FROM orders
       WHERE restaurant_id = $1 AND id = $2
         FOR UPDATE`,
@@ -306,7 +349,7 @@ async function lockOrder(
   return rows[0]!;
 }
 
-async function loadOrder(tx: Queryable, restaurantId: string, id: string) {
+export async function loadOrder(tx: Queryable, restaurantId: string, id: string) {
   const { orders } = await queryOrders(
     tx,
     restaurantId,

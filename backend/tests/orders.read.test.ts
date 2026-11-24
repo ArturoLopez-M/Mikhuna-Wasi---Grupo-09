@@ -114,7 +114,9 @@ describe("GET /orders: respuesta", () => {
     expect(res.body.data).toEqual([
       {
         id: ORDER,
+        serviceType: "dine_in",
         tableLabel: "Mesa 4",
+        delivery: null,
         status: "pending",
         notes: null,
         createdBy: { id: USER, fullName: "Ana Pérez" },

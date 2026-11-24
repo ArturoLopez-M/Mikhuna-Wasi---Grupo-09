@@ -9,13 +9,17 @@ import { routes as lecturaRoutes } from "../../src/lambdas/lectura-config/index"
 import { routes as pedidosRoutes } from "../../src/lambdas/pedidos/index";
 import { routes as cocinaRoutes } from "../../src/lambdas/cocina/index";
 import { routes as pagosRoutes } from "../../src/lambdas/pagos/index";
+import { routes as deliveryRoutes } from "../../src/lambdas/delivery/index";
+import type { Cache } from "../../src/core/cache";
 import type { AuthIdentity } from "../../src/types/auth";
 import { HttpError } from "../../src/utils/httpError";
 
 // Emula lo que hace API Gateway delante de las Lambdas, para probar la lógica
 // con la misma interfaz que supertest:
-//   - GET  -> evento REST proxy -> Lambda Lectura y Configuración.
-//   - POST -> mensaje en la cola -> Lambda Pedidos, Cocina o Registro de Pagos.
+//   - Consultas, perfil y configuración (incluye POST/PATCH de productos y
+//     modalidad) -> evento REST proxy -> Lambda Lectura y Configuración.
+//   - Escrituras de pedidos -> mensaje en la cola -> Lambda Pedidos, Cocina,
+//     Registro de Pagos o Delivery.
 // `identity` simula un usuario ya resuelto; `sub` hace que la identidad se
 // busque en la base de verdad (resolveIdentity). Sin ninguno, API Gateway
 // rechazaría la petición con 401.
@@ -25,6 +29,8 @@ export interface TestApp {
   sub?: string;
   // Id de petición de API Gateway (solo si la prueba lo necesita).
   requestId?: string;
+  // ElastiCache simulado para Lectura y Configuración (opcional).
+  cache?: Cache;
 }
 
 // Id de petición por defecto: API Gateway siempre envía uno.
@@ -34,7 +40,14 @@ export function testApp(app: TestApp): TestApp {
   return app;
 }
 
-const writeRoutes: readonly Route[] = [...pedidosRoutes, ...cocinaRoutes, ...pagosRoutes];
+const writeRoutes: readonly Route[] = [
+  ...pedidosRoutes,
+  ...cocinaRoutes,
+  ...pagosRoutes,
+  ...deliveryRoutes,
+];
+
+type Method = "GET" | "POST" | "PATCH";
 
 export interface TestResponse {
   status: number;
@@ -71,7 +84,7 @@ class Call implements PromiseLike<TestResponse> {
 
   constructor(
     private readonly app: TestApp,
-    private readonly method: "GET" | "POST",
+    private readonly method: Method,
     private readonly url: string,
   ) {}
 
@@ -95,8 +108,10 @@ class Call implements PromiseLike<TestResponse> {
 
   private async run(): Promise<TestResponse> {
     const [path, qs = ""] = this.url.split("?");
-    const routes = this.method === "GET" ? lecturaRoutes : writeRoutes;
-    const match = findTemplate(routes, this.method, path!);
+    // Como en API Gateway: cada ruta va a su Lambda (directa o por cola).
+    const rest = findTemplate(lecturaRoutes, this.method, path!);
+    const routes = rest ? lecturaRoutes : writeRoutes;
+    const match = rest ?? findTemplate(writeRoutes, this.method, path!);
 
     // API Gateway: ruta inexistente o sin token válido.
     if (!match) return response(errorResult(new HttpError(404, "NOT_FOUND", "Ruta no encontrada"), { method: this.method, resource: path! }));
@@ -109,10 +124,10 @@ class Call implements PromiseLike<TestResponse> {
       ? async () => this.app.identity!
       : resolveIdentity;
 
-    if (this.method === "GET") {
+    if (rest) {
       const query = Object.fromEntries(new URLSearchParams(qs));
       const event = {
-        httpMethod: "GET",
+        httpMethod: this.method,
         resource: match.resource,
         pathParameters: match.params,
         queryStringParameters: Object.keys(query).length ? query : null,
@@ -121,7 +136,12 @@ class Call implements PromiseLike<TestResponse> {
         isBase64Encoded: false,
         requestContext: { requestId: this.app.requestId, authorizer: { claims: { sub } } },
       } as unknown as APIGatewayProxyEvent;
-      return response(await handleRestEvent(this.app.db, routes, event, resolve));
+      return response(
+        await handleRestEvent(this.app.db, routes, event, resolve, {
+          cache: this.app.cache,
+          writeDb: this.app.db,
+        }),
+      );
     }
 
     const message = {
@@ -163,5 +183,6 @@ export function request(app: TestApp) {
   return {
     get: (url: string) => new Call(app, "GET", url),
     post: (url: string) => new Call(app, "POST", url),
+    patch: (url: string) => new Call(app, "PATCH", url),
   };
 }
