@@ -27,7 +27,7 @@ El camino de cada petición sigue el diagrama de arquitectura:
 | `POST /orders/{id}/start-preparing`, `POST /orders/{id}/mark-ready` | Cocina |
 | `POST /orders/{id}/payment` | Registro de Pagos |
 
-- El **resultado** de una escritura tiene el mismo `status` y cuerpo que describe cada endpoint (por ejemplo `201` con el pedido, o `409 INVALID_ORDER_STATUS`). Llega por WebSocket como `{ "type": "write.result", "requestId", "status", "body" }` (fase 2; mientras tanto solo queda en CloudWatch Logs como `WRITE_RESULT`).
+- El **resultado** de una escritura tiene el mismo `status` y cuerpo que describe cada endpoint (por ejemplo `201` con el pedido, o `409 INVALID_ORDER_STATUS`). Llega por WebSocket como `{ "type": "write.result", "requestId", "status", "body" }` (sección 6.6) y también queda en CloudWatch Logs como `WRITE_RESULT`.
 - Los errores de negocio (`400`, `403`, `404`, `409`) no se reintentan. Un error técnico (base caída, por ejemplo) devuelve el mensaje a la cola; tras **3 intentos** fallidos pasa a la **DLQ** y se dispara una alarma.
 
 ## 2. Autenticación y aislamiento
@@ -255,9 +255,26 @@ Una sola transacción:
 
 El MVP registra el pago informado por el cajero; no procesa cobros reales.
 
-## 7. Limitaciones conocidas del MVP
+### 6.6 Tiempo real (WebSocket)
 
-- **Resultado de las escrituras solo en el log:** hasta la fase 2 (WebSocket + ElastiCache) el frontend no recibe el resultado; puede consultar el pedido con `GET`.
+Conexión: `wss://<api-websocket>/<etapa>?token=<access_token>`. El navegador no puede enviar cabeceras al abrir un WebSocket, por eso el **access token** de Cognito va en `token`. Al conectar (`$connect`), la Lambda **Lectura y Configuración** valida el token igual que en REST, busca al usuario en `users` y registra la conexión en ElastiCache por restaurante y por usuario. Sin token o con token inválido la conexión se rechaza (`401`); usuario sin acceso, `403`; si ElastiCache no está disponible, `503` y la pantalla usa el polling.
+
+Mensajes que envía el servidor (el cliente no envía nada; las acciones van por REST):
+
+| `type` | A quién | Contenido |
+|---|---|---|
+| `write.result` | Solo al usuario que hizo la escritura (todas sus pantallas) | `{ requestId, status, body }`, con el mismo `status` y cuerpo de la sección 6.4 o 6.5, también si es un error |
+| `order.updated` | Todo el restaurante | `{ order }`, el pedido completo. Solo si la escritura tuvo éxito |
+
+Respaldo (RNF03): si no llega ningún mensaje durante 5 segundos con la conexión caída, el frontend muestra la hora de la última actualización y consulta `GET /api/v1/orders` cada 15 segundos hasta reconectar.
+
+### 6.7 ElastiCache
+
+- **Duplicados (RNF02):** antes de procesar un mensaje de la cola, la Lambda revisa si su `requestId` ya se procesó (`dedup:done:<id>`, 24 h) o si otra Lambda lo está procesando (`dedup:lock:<id>`, 30 s). Si ya se procesó, se descarta sin tocar la base; si está en proceso, vuelve a la cola. La idempotencia en la base (sección 6.4) sigue siendo la red de seguridad.
+- **Caché de lectura:** `GET /api/v1/orders/{id}` se guarda 60 s con el restaurante en la clave. Las Lambdas de escritura la borran cuando el pedido cambia.
+- **Sin ElastiCache el sistema sigue funcionando (RNF07):** se procesa sin la revisión de duplicados (la base los evita), se lee directo de Aurora y no hay avisos en tiempo real.
+
+## 7. Limitaciones conocidas del MVP
 
 - **Sin gestión de usuarios ni restaurantes:** dar de alta empleados o restaurantes es manual (Cognito + `insert` en `users`).
 - **Historial de estados sin endpoint:** cada creación, acción y pago agrega una fila a `order_status_history` (estado anterior, nuevo, usuario y fecha), en la misma transacción. La base impide modificar o borrar ese historial y los pagos. Todavía no hay endpoint para consultarlo.

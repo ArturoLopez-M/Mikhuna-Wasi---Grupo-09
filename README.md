@@ -75,14 +75,15 @@ Comparación del repositorio con el informe de diseño. Leyenda: ✅ implementad
 | Autorización por rol (RNF05) | ✅ | `middleware/requireRole.ts` |
 | Autenticación con Cognito (RNF05) | 🟡 | `core/identity.ts`; el autorizador y el User Pool no están en Terraform |
 | Registro de accesos rechazados (RNF05) | 🟡 | `core/dispatch.ts` (log JSON); falta alarma CloudWatch/SNS |
-| Idempotencia de escrituras (RNF01/RNF02) | 🟡 | `Idempotency-Key` en `POST /orders`; ElastiCache no implementado |
+| Idempotencia y duplicados (RNF01/RNF02) | ✅ | `Idempotency-Key` o `requestId` en la base; revisión en ElastiCache en `core/queue.ts` |
 | Historial auditable de pedidos y pagos (RNF12) | 🟡 | `order_status_history` + triggers de solo agregar; sin endpoint ni retención de 12 meses automatizada |
 | Productos, `/me`, configuración por restaurante (RNF08) | ❌ | descritos en el contrato o el informe, sin código |
 | Delivery y rol repartidor | ❌ | sin código ni esquema |
 | Lambda por módulo con SQS + DLQ (RNF01/RNF07) | 🟡 | `src/lambdas/` (4 de 5; Delivery pendiente); colas y DLQ no están en Terraform |
-| WebSocket y polling de respaldo (RNF02/RNF03) | ❌ | |
+| WebSocket y avisos en tiempo real (RNF02/RNF03) | 🟡 | `core/websocket.ts`, `core/realtime.ts`; el polling de respaldo va en el frontend |
 | Aurora Serverless v2 multi-AZ, RDS Proxy, VPC (RNF04/RNF06) | ❌ | Terraform no los define |
-| ElastiCache, WAF, CloudFront, Route 53 | ❌ | |
+| ElastiCache (duplicados, conexiones, caché de lectura) | 🟡 | `core/cache.ts`; el clúster no está en Terraform |
+| WAF, CloudFront, Route 53 | ❌ | |
 | AWS Backup diario/semanal/PITR (RNF11) | ❌ | |
 | Alarmas CloudWatch + SNS (RNF10) | ❌ | solo existe un log group |
 | Frontend web adaptable (RNF09) | ❌ | S3 contiene un `index.html` de prueba |
