@@ -18,24 +18,11 @@ describe("loadEnv", () => {
     const env = loadEnv({ DATABASE_URL: validUrl });
 
     expect(env.NODE_ENV).toBe("development");
-    expect(env.PORT).toBe(3000);
     expect(env.DATABASE_URL).toBe(validUrl);
-  });
-
-  it("convierte PORT a número", () => {
-    const env = loadEnv({ DATABASE_URL: validUrl, PORT: "4000" });
-
-    expect(env.PORT).toBe(4000);
   });
 
   it("falla si falta DATABASE_URL", () => {
     expect(() => loadEnv({})).toThrow(/DATABASE_URL/);
-  });
-
-  it("falla si PORT no es un puerto válido", () => {
-    expect(() => loadEnv({ DATABASE_URL: validUrl, PORT: "abc" })).toThrow(
-      /PORT/,
-    );
   });
 
   it("falla si NODE_ENV tiene un valor desconocido", () => {

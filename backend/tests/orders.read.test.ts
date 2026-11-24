@@ -1,6 +1,5 @@
-import request from "supertest";
+import { request, testApp } from "./helpers/api";
 import { describe, expect, it } from "vitest";
-import { createApp } from "../src/app";
 import { asRole } from "./helpers/auth";
 import {
   ORDER,
@@ -18,7 +17,7 @@ const MAIN_QUERY = /JOIN users u/;
 
 function setup(handlers: Handler[] = orderView()) {
   const fake = scriptedDb(handlers);
-  const app = createApp({ db: fake.db, authenticate: asRole("kitchen") });
+  const app = testApp({ db: fake.db, identity: asRole("kitchen") });
   return { ...fake, app };
 }
 

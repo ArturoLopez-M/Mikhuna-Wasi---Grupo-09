@@ -1,6 +1,5 @@
-import request from "supertest";
+import { request, testApp } from "./helpers/api";
 import { describe, expect, it } from "vitest";
-import { createApp } from "../src/app";
 import { asRole } from "./helpers/auth";
 import { fakeDb } from "./helpers/fakeDb";
 
@@ -11,13 +10,13 @@ const valid = {
 
 describe("POST /api/v1/orders", () => {
   it("cocina no puede crear pedidos (403)", async () => {
-    const app = createApp({ db: fakeDb(), authenticate: asRole("kitchen") });
+    const app = testApp({ db: fakeDb(), identity: asRole("kitchen") });
     const res = await request(app).post("/api/v1/orders").send(valid);
     expect(res.status).toBe(403);
   });
 
   it("rechaza unitPrice enviado por el cliente (400)", async () => {
-    const app = createApp({ db: fakeDb(), authenticate: asRole("waiter") });
+    const app = testApp({ db: fakeDb(), identity: asRole("waiter") });
     const res = await request(app)
       .post("/api/v1/orders")
       .send({

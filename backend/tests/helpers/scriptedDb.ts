@@ -122,3 +122,12 @@ export function orderView(
     ],
   ];
 }
+
+// Al crear un pedido siempre se busca primero uno anterior con la misma clave
+// de idempotencia (la cabecera o el id de la petición). Estas respuestas por
+// defecto dicen "no existe"; los manejadores explícitos de cada prueba ganan
+// porque van antes.
+export const noPriorOrder: Handler[] = [
+  [/SELECT count\(\*\)::int AS count/, () => [{ count: 0 }]],
+  [/JOIN users u/, () => []],
+];

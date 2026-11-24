@@ -13,7 +13,8 @@ export interface Database extends Queryable {
 }
 
 export function createDatabase(connectionString: string): Database {
-  const pool = new Pool({ connectionString, connectionTimeoutMillis: 3000 });
+  // Una Lambda atiende una invocación a la vez: con 2 conexiones basta.
+  const pool = new Pool({ connectionString, connectionTimeoutMillis: 3000, max: 2 });
 
   pool.on("error", (err) => {
     console.error("Error en una conexión inactiva del pool:", err.message);

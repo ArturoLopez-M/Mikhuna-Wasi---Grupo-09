@@ -1,10 +1,11 @@
-import express from "express";
-import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { errorHandler } from "../src/middleware/errorHandler";
+import { dispatch } from "../src/core/dispatch";
+import type { Route } from "../src/core/types";
 import { HttpError } from "../src/utils/httpError";
 import { parseInput } from "../src/utils/parseInput";
+import { asRole } from "./helpers/auth";
+import { fakeDb } from "./helpers/fakeDb";
 
 const productId = "11111111-1111-4111-8111-111111111111";
 
@@ -100,30 +101,37 @@ describe("parseInput", () => {
   });
 });
 
-describe("parseInput dentro de Express", () => {
-  const testApp = express();
-  testApp.use(express.json());
-  testApp.post("/orders", (req, res) => {
-    const input = parseInput(orderSchema, req.body);
-    res.status(201).json(input);
-  });
-  testApp.use(errorHandler);
+describe("parseInput dentro de una ruta", () => {
+  const routes: Route[] = [
+    {
+      method: "POST",
+      resource: "/orders",
+      handle: async (_db, req) => ({ status: 201, body: parseInput(orderSchema, req.body) }),
+    },
+  ];
+  const call = (body: unknown) =>
+    dispatch(fakeDb(), routes, {
+      method: "POST",
+      resource: "/orders",
+      params: {},
+      query: {},
+      headers: {},
+      body,
+      identity: asRole("waiter"),
+    });
 
   it("responde 400 en el formato del contrato cuando el cuerpo es inválido", async () => {
-    const res = await request(testApp)
-      .post("/orders")
-      .send({ tableLabel: "Mesa 4", items: [] });
+    const res = await call({ tableLabel: "Mesa 4", items: [] });
+    const body = res.body as any;
 
     expect(res.status).toBe(400);
-    expect(res.body.error.code).toBe("VALIDATION_ERROR");
-    expect(res.body.error.message).toBe("Datos inválidos");
-    expect(res.body.error.details[0].field).toBe("items");
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toBe("Datos inválidos");
+    expect(body.error.details[0].field).toBe("items");
   });
 
   it("deja pasar un cuerpo válido", async () => {
-    const res = await request(testApp)
-      .post("/orders")
-      .send({ tableLabel: "Mesa 4", items: [{ productId, quantity: 2 }] });
+    const res = await call({ tableLabel: "Mesa 4", items: [{ productId, quantity: 2 }] });
 
     expect(res.status).toBe(201);
   });

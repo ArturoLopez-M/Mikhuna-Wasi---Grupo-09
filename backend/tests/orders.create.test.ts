@@ -1,6 +1,5 @@
-import request from "supertest";
+import { REQUEST_ID, request, testApp } from "./helpers/api";
 import { describe, expect, it } from "vitest";
-import { createApp } from "../src/app";
 import type { Role } from "../src/types/auth";
 import { asRole } from "./helpers/auth";
 import {
@@ -10,6 +9,7 @@ import {
   RESTAURANT,
   USER,
   isolated,
+  noPriorOrder,
   scriptedDb,
   type Handler,
 } from "./helpers/scriptedDb";
@@ -18,8 +18,8 @@ const URL = "/api/v1/orders";
 const valid = { tableLabel: "Mesa 4", items: [{ productId: P1, quantity: 2 }] };
 
 function setup(role: Role, handlers: Handler[] = []) {
-  const fake = scriptedDb(handlers);
-  const app = createApp({ db: fake.db, authenticate: asRole(role) });
+  const fake = scriptedDb([...handlers, ...noPriorOrder]);
+  const app = testApp({ db: fake.db, identity: asRole(role) });
   return { ...fake, app };
 }
 
@@ -55,7 +55,7 @@ const happyPath: Handler[] = [
       },
     ],
   ],
-  [/AS total/, () => [{ total: "78.00" }]],
+  [/SELECT COALESCE\(SUM/, () => [{ total: "78.00" }]],
   [/SELECT full_name/, () => [{ full_name: "Ana Pérez" }]],
 ];
 
@@ -148,7 +148,7 @@ describe("POST /orders: reglas de negocio", () => {
     await request(t.app).post(URL).send({ ...valid, tableLabel: "  Mesa 4  " });
 
     expect(t.paramsOf(/FROM products/)![0]).toBe(RESTAURANT);
-    expect(t.paramsOf(/INSERT INTO orders/)).toEqual([RESTAURANT, "Mesa 4", null, USER, null]);
+    expect(t.paramsOf(/INSERT INTO orders/)).toEqual([RESTAURANT, "Mesa 4", null, USER, REQUEST_ID]);
     expect(t.paramsOf(/INSERT INTO order_items/)).toEqual([
       RESTAURANT, ORDER, P1, "Lomo saltado", 2, "35.00", null,
     ]);

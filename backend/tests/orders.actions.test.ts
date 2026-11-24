@@ -1,6 +1,5 @@
-import request from "supertest";
+import { request, testApp } from "./helpers/api";
 import { describe, expect, it } from "vitest";
-import { createApp } from "../src/app";
 import type { Role } from "../src/types/auth";
 import { asRole } from "./helpers/auth";
 import {
@@ -18,7 +17,7 @@ const action = (name: string) => `/api/v1/orders/${ORDER}/${name}`;
 
 function setup(role: Role, handlers: Handler[] = []) {
   const fake = scriptedDb(handlers);
-  const app = createApp({ db: fake.db, authenticate: asRole(role) });
+  const app = testApp({ db: fake.db, identity: asRole(role) });
   return { ...fake, app };
 }
 

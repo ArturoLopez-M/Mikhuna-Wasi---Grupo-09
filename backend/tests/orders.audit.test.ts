@@ -1,6 +1,5 @@
-import request from "supertest";
+import { request, testApp } from "./helpers/api";
 import { describe, expect, it, vi } from "vitest";
-import { createApp } from "../src/app";
 import type { Role } from "../src/types/auth";
 import { asRole } from "./helpers/auth";
 import {
@@ -9,6 +8,7 @@ import {
   RESTAURANT,
   USER,
   isolated,
+  noPriorOrder,
   orderView,
   scriptedDb,
   type Handler,
@@ -22,8 +22,8 @@ const valid = { tableLabel: "Mesa 4", items: [{ productId: P1, quantity: 2 }] };
 const KEY = "9f1c2d3e-0000-4000-8000-000000000001";
 
 function setup(role: Role, handlers: Handler[] = []) {
-  const fake = scriptedDb(handlers);
-  const app = createApp({ db: fake.db, authenticate: asRole(role) });
+  const fake = scriptedDb([...handlers, ...noPriorOrder]);
+  const app = testApp({ db: fake.db, identity: asRole(role) });
   return { ...fake, app };
 }
 
@@ -34,7 +34,7 @@ const createHandlers: Handler[] = [
     () => [{ id: ORDER, table_label: "Mesa 4", status: "pending", notes: null, created_at: new Date("2026-01-01T00:00:00.000Z") }],
   ],
   [/INSERT INTO order_items/, () => [{ id: "77777777-7777-4777-8777-777777777777", line_total: "70.00" }]],
-  [/AS total/, () => [{ total: "70.00" }]],
+  [/SELECT COALESCE\(SUM/, () => [{ total: "70.00" }]],
   [/SELECT full_name/, () => [{ full_name: "Ana Pérez" }]],
 ];
 
@@ -145,7 +145,7 @@ describe("Historial de estados (RNF12)", () => {
     expect(t.paramsOf(history)).toEqual([RESTAURANT, ORDER, "ready", "closed", USER]);
   });
 
-  it("si el historial falla, el cambio de estado se revierte", async () => {
+  it("si el historial falla, el cambio se revierte y el mensaje vuelve a la cola", async () => {
     const t = setup("kitchen", [
       [/FOR UPDATE/, () => [{ id: ORDER, status: "pending", created_by: USER }]],
       [history, () => new Error("fallo al escribir historial")],
@@ -154,6 +154,7 @@ describe("Historial de estados (RNF12)", () => {
     const res = await request(t.app).post(`${URL}/${ORDER}/start-preparing`);
 
     expect(res.status).toBe(500);
+    expect(res.retried).toBe(true);
     expect(t.events).toEqual(["BEGIN", "ROLLBACK"]);
     vi.restoreAllMocks();
   });
@@ -187,7 +188,7 @@ describe("Registro de accesos rechazados (RNF05)", () => {
 
   it("un 401 sin identidad se registra con usuario y restaurante nulos", async () => {
     const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const app = createApp({ db: scriptedDb().db });
+    const app = testApp({ db: scriptedDb().db });
     await request(app).get(`${URL}?status=pending`);
 
     const entry = JSON.parse(String(spy.mock.calls[0]![0]));
