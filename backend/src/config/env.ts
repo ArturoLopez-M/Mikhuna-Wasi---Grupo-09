@@ -1,17 +1,37 @@
 import { z } from "zod";
 
-const envSchema = z.object({
-  NODE_ENV: z
-    .enum(["development", "test", "production"])
-    .default("development"),
-  PORT: z.coerce.number().int().min(1).max(65535).default(3000),
-  DATABASE_URL: z
-    .string()
-    .regex(
-      /^postgres(ql)?:\/\/.+/,
-      "debe empezar con postgresql:// o postgres://",
+// Una variable opcional vacía (COGNITO_CLIENT_ID=) cuenta como "no definida".
+const optional = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((v) => (v === "" ? undefined : v), schema.optional());
+
+const envSchema = z
+  .object({
+    NODE_ENV: z
+      .enum(["development", "test", "production"])
+      .default("development"),
+    PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+    DATABASE_URL: z
+      .string()
+      .regex(
+        /^postgres(ql)?:\/\/.+/,
+        "debe empezar con postgresql:// o postgres://",
+      ),
+    // Cognito: opcionales. Si faltan, la API rechaza todo con 401 (falla cerrado).
+    COGNITO_USER_POOL_ID: optional(
+      z
+        .string()
+        .regex(/^[\w-]+_[0-9A-Za-z]+$/, "formato esperado: us-east-2_AbCdEf123"),
     ),
-});
+    COGNITO_CLIENT_ID: optional(z.string().min(1)),
+  })
+  .refine(
+    (env) =>
+      Boolean(env.COGNITO_USER_POOL_ID) === Boolean(env.COGNITO_CLIENT_ID),
+    {
+      message: "COGNITO_USER_POOL_ID y COGNITO_CLIENT_ID deben definirse juntas",
+      path: ["COGNITO_CLIENT_ID"],
+    },
+  );
 
 export type Env = z.infer<typeof envSchema>;
 
