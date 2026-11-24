@@ -49,7 +49,7 @@ npm test         # pruebas (no necesitan la base)
 npm run build    # compila a dist/
 ```
 
-> **Autenticación:** en `main` la verificación de Cognito todavía no está integrada (vive en la rama `feat/auth-cognito`). Mientras tanto, todo `/api/v1/*` responde `401` por diseño (falla cerrado) y solo `/health` es accesible. Las pruebas simulan usuarios con `tests/helpers/auth.ts`.
+> **Autenticación:** el backend verifica el access token de Cognito si en `.env` se definen `COGNITO_USER_POOL_ID` y `COGNITO_CLIENT_ID`. Sin ellas, todo `/api/v1/*` responde `401` por diseño (falla cerrado) y solo `/health` es accesible. Las pruebas simulan usuarios con `tests/helpers/auth.ts`.
 
 ## Infraestructura (Terraform)
 
@@ -67,7 +67,7 @@ Comparación del repositorio con el informe de diseño. Leyenda: ✅ implementad
 | Pedidos: crear, listar, ver, preparar, listo, cancelar, pagar | ✅ | `backend/src/modules/orders/` |
 | Aislamiento por restaurante en cada consulta (RNF05) | ✅ | `repository.ts`, `service.ts`, claves foráneas compuestas en `schema.sql` |
 | Autorización por rol (RNF05) | ✅ | `middleware/requireRole.ts` |
-| Autenticación con Cognito (RNF05) | 🟡 | rama `feat/auth-cognito`, sin integrar |
+| Autenticación con Cognito (RNF05) | 🟡 | `middleware/authenticate.ts`, `auth/cognito.ts`; el User Pool no está en Terraform |
 | Registro de accesos rechazados (RNF05) | 🟡 | `middleware/errorHandler.ts` (log JSON); falta alarma CloudWatch/SNS |
 | Idempotencia de escrituras (RNF01/RNF02) | 🟡 | `Idempotency-Key` en `POST /orders`; ElastiCache no implementado |
 | Historial auditable de pedidos y pagos (RNF12) | 🟡 | `order_status_history` + triggers de solo agregar; sin endpoint ni retención de 12 meses automatizada |
