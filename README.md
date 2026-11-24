@@ -15,7 +15,8 @@ SaaS multi-restaurante (modelo *Pool*) para centralizar pedidos, cocina, pagos y
 backend/     Lambdas en Node.js + TypeScript (una por módulo del diagrama)
   db/        schema.sql y seed.sql de PostgreSQL
   src/
-    lambdas/ lectura-config (REST), pedidos, cocina, pagos (consumidores SQS)
+    lambdas/ lectura-config (REST y WebSocket), pedidos, cocina, pagos y
+             delivery (consumidores SQS)
     core/    despacho de rutas, identidad, adaptadores REST y SQS
     modules/ lógica de negocio por módulo (src/modules/<nombre>/)
   scripts/   build.mjs: empaqueta cada Lambda en dist/<nombre>/index.js
@@ -77,9 +78,9 @@ Comparación del repositorio con el informe de diseño. Leyenda: ✅ implementad
 | Registro de accesos rechazados (RNF05) | 🟡 | `core/dispatch.ts` (log JSON); falta alarma CloudWatch/SNS |
 | Idempotencia y duplicados (RNF01/RNF02) | ✅ | `Idempotency-Key` o `requestId` en la base; revisión en ElastiCache en `core/queue.ts` |
 | Historial auditable de pedidos y pagos (RNF12) | 🟡 | `order_status_history` + triggers de solo agregar; sin endpoint ni retención de 12 meses automatizada |
-| Productos, `/me`, configuración por restaurante (RNF08) | ❌ | descritos en el contrato o el informe, sin código |
-| Delivery y rol repartidor | ❌ | sin código ni esquema |
-| Lambda por módulo con SQS + DLQ (RNF01/RNF07) | 🟡 | `src/lambdas/` (4 de 5; Delivery pendiente); colas y DLQ no están en Terraform |
+| Productos, `/me`, configuración por restaurante (RNF08) | ✅ | `modules/products`, `modules/restaurant` |
+| Delivery y rol repartidor | ✅ | `modules/delivery`, Lambda `delivery` |
+| Lambda por módulo con SQS + DLQ (RNF01/RNF07) | 🟡 | `src/lambdas/` (las 5 del diagrama); colas y DLQ no están en Terraform |
 | WebSocket y avisos en tiempo real (RNF02/RNF03) | 🟡 | `core/websocket.ts`, `core/realtime.ts`; el polling de respaldo va en el frontend |
 | Aurora Serverless v2 multi-AZ, RDS Proxy, VPC (RNF04/RNF06) | ❌ | Terraform no los define |
 | ElastiCache (duplicados, conexiones, caché de lectura) | 🟡 | `core/cache.ts`; el clúster no está en Terraform |

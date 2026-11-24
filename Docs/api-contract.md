@@ -18,14 +18,15 @@ Contrato que siguen backend y frontend. Versión del MVP. Cualquier cambio se di
 
 El camino de cada petición sigue el diagrama de arquitectura:
 
-- **Lecturas (`GET`)**: API Gateway REST → Lambda **Lectura y Configuración**. La respuesta HTTP es la descrita en cada endpoint.
-- **Escrituras (`POST`)**: API Gateway REST deja la petición en la cola SQS del módulo y responde enseguida **`202 Accepted`** con `{ "requestId": "..." }`. La Lambda del módulo la procesa:
+- **Consultas, perfil y configuración**: API Gateway REST → Lambda **Lectura y Configuración**, sin cola, porque el usuario espera la respuesta en pantalla. Son los `GET`, más guardar la modalidad del restaurante y el menú (`PATCH /restaurant/config`, `POST /products`, `PATCH /products/{id}`). La respuesta HTTP es la descrita en cada endpoint.
+- **Escrituras de pedidos (`POST /orders...`)**: API Gateway REST deja la petición en la cola SQS del módulo y responde enseguida **`202 Accepted`** con `{ "requestId": "..." }`. La Lambda del módulo la procesa:
 
 | Ruta | Cola y Lambda |
 |---|---|
 | `POST /orders`, `POST /orders/{id}/cancel` | Pedidos |
 | `POST /orders/{id}/start-preparing`, `POST /orders/{id}/mark-ready` | Cocina |
 | `POST /orders/{id}/payment` | Registro de Pagos |
+| `POST /orders/{id}/dispatch`, `/deliver`, `/delivery-failed`, `/assign` | Delivery |
 
 - El **resultado** de una escritura tiene el mismo `status` y cuerpo que describe cada endpoint (por ejemplo `201` con el pedido, o `409 INVALID_ORDER_STATUS`). Llega por WebSocket como `{ "type": "write.result", "requestId", "status", "body" }` (sección 6.6) y también queda en CloudWatch Logs como `WRITE_RESULT`.
 - Los errores de negocio (`400`, `403`, `404`, `409`) no se reintentan. Un error técnico (base caída, por ejemplo) devuelve el mensaje a la cola; tras **3 intentos** fallidos pasa a la **DLQ** y se dispara una alarma.
@@ -66,11 +67,13 @@ Formato único:
 | 409 | `PAYMENT_AMOUNT_MISMATCH` | El monto enviado no coincide con el total |
 | 409 | `PRODUCT_UNAVAILABLE` | Producto con `isAvailable: false` en un pedido |
 | 409 | `PRODUCT_LIMIT_REACHED` | Se alcanzó el tope de 200 productos |
+| 409 | `SERVICE_MODE_NOT_ALLOWED` | El restaurante no atiende ese tipo de pedido (por ejemplo, delivery en un restaurante solo en local) |
+| 409 | `INVALID_DELIVERY_STATUS` | El pedido no es de delivery o la entrega no está en un estado válido para la acción |
 | 500 | `INTERNAL_ERROR` | Error inesperado. No filtra información interna; el detalle va solo al log, sin tokens ni datos sensibles |
 
 ## 4. Roles y permisos
 
-Roles: `admin`, `waiter`, `kitchen`, `cashier`. El admin puede hacer todo lo operativo. Todos ven todos los pedidos del restaurante. Cada acción se autoriza por separado en el backend; el `role` que recibe el frontend sirve para mostrar pantallas, nunca como control de seguridad.
+Roles: `admin`, `waiter`, `kitchen`, `cashier`, `delivery` (repartidor). El admin puede hacer todo lo operativo. Todos ven todos los pedidos del restaurante. Cada acción se autoriza por separado en el backend; el `role` que recibe el frontend sirve para mostrar pantallas, nunca como control de seguridad.
 
 | Acción | Roles |
 |---|---|
@@ -80,6 +83,10 @@ Roles: `admin`, `waiter`, `kitchen`, `cashier`. El admin puede hacer todo lo ope
 | `start-preparing`, `mark-ready` | kitchen, admin |
 | `cancel` | waiter (solo sus propios pedidos en `pending`), admin (`pending`, `preparing`, `ready`) |
 | `payment` (pagar y cerrar) | cashier, admin |
+| `dispatch`, `deliver`, `delivery-failed` | delivery (solo sus entregas), admin |
+| `assign` (asignar repartidor) | admin |
+| Ver la modalidad del restaurante | todos |
+| Cambiar la modalidad del restaurante | admin |
 
 ## 5. Estados del pedido
 
@@ -109,11 +116,11 @@ No hay endpoint de salud: no forma parte del diagrama. La salud del sistema se o
   "fullName": "Ana Pérez",
   "email": "ana@ejemplo.com",
   "role": "waiter",
-  "restaurant": { "id": "uuid", "name": "Mikhuna Central" }
+  "restaurant": { "id": "uuid", "name": "Mikhuna Central", "serviceMode": "both" }
 }
 ```
 
-No incluye `cognitoSub`.
+No incluye `cognitoSub`. `serviceMode` sirve para que el frontend muestre solo lo que el restaurante atiende (sección 6.9).
 
 ### 6.3 Productos
 
@@ -156,7 +163,9 @@ Pedido completo (misma forma en creación, detalle, lista y acciones):
 ```json
 {
   "id": "uuid",
+  "serviceType": "dine_in",
   "tableLabel": "Mesa 4",
+  "delivery": null,
   "status": "pending",
   "notes": null,
   "createdBy": { "id": "uuid", "fullName": "Ana Pérez" },
@@ -177,6 +186,7 @@ Pedido completo (misma forma en creación, detalle, lista y acciones):
 }
 ```
 
+- `serviceType`: `dine_in` (en el local, con `tableLabel`) o `delivery`. En un delivery, `tableLabel` es `null` y `delivery` es `{ "address": "...", "status": "pending_dispatch", "assignedTo": null | { "id", "fullName" } }` (sección 6.8). En local, `delivery` es `null`.
 - `payment` es `null` hasta que se cobra; luego `{ "amount": "70.00", "method": "cash", "createdAt": "..." }`.
 - `lineTotal` y `total` los calcula el backend con el `unitPrice` guardado en la línea. Cambiar el precio de un producto no altera pedidos existentes.
 - `productName` es copia histórica tomada al crear la línea (columna `order_items.product_name`).
@@ -187,9 +197,12 @@ Pedido completo (misma forma en creación, detalle, lista y acciones):
 | `GET` | `/api/v1/orders` | todos | 200 |
 | `GET` | `/api/v1/orders/{id}` | todos | 200 |
 
-**Crear:** `{ tableLabel, notes?, items }`.
+**Crear:** `{ serviceType?, tableLabel?, deliveryAddress?, notes?, items }`.
 
-- `tableLabel`: 1 a 30 caracteres.
+- `serviceType`: `dine_in` (por defecto) o `delivery`.
+- `tableLabel`: 1 a 30 caracteres. Obligatorio en `dine_in`; no se envía en `delivery`.
+- `deliveryAddress`: 1 a 300 caracteres. Obligatoria en `delivery`; no se envía en `dine_in`.
+- Si el restaurante no atiende ese tipo de pedido (sección 6.9): `409 SERVICE_MODE_NOT_ALLOWED`.
 - `notes`: opcional, hasta 500 caracteres o `null`.
 - `items`: de 1 a 50 líneas. Cada una: `{ productId, quantity, notes? }`, con `productId` UUID, `quantity` entero de 1 a 99 y `notes` de hasta 200 caracteres.
 - Un mismo producto puede repetirse en varias líneas.
@@ -273,6 +286,41 @@ Respaldo (RNF03): si no llega ningún mensaje durante 5 segundos con la conexió
 - **Duplicados (RNF02):** antes de procesar un mensaje de la cola, la Lambda revisa si su `requestId` ya se procesó (`dedup:done:<id>`, 24 h) o si otra Lambda lo está procesando (`dedup:lock:<id>`, 30 s). Si ya se procesó, se descarta sin tocar la base; si está en proceso, vuelve a la cola. La idempotencia en la base (sección 6.4) sigue siendo la red de seguridad.
 - **Caché de lectura:** `GET /api/v1/orders/{id}` se guarda 60 s con el restaurante en la clave. Las Lambdas de escritura la borran cuando el pedido cambia.
 - **Sin ElastiCache el sistema sigue funcionando (RNF07):** se procesa sin la revisión de duplicados (la base los evita), se lee directo de Aurora y no hay avisos en tiempo real.
+
+### 6.8 Delivery
+
+Estados de la entrega, aparte del estado de cocina del pedido:
+
+```
+pending_dispatch -> on_the_way -> delivered
+                          \-----> failed
+```
+
+Todas van por la cola de **Delivery**; su resultado es `200` con el pedido completo. El orden de verificación es el de la sección 6.5: rol, pedido del restaurante (`404`), regla de repartidor (`403`) y estado (`409 INVALID_DELIVERY_STATUS`).
+
+| Acción | Ruta | Quién | Requiere | Resultado |
+|---|---|---|---|---|
+| Despachar | `/api/v1/orders/{id}/dispatch` | delivery, admin | pedido `ready` o `closed`, entrega `pending_dispatch` | `on_the_way` |
+| Entregar | `/api/v1/orders/{id}/deliver` | delivery (asignado), admin | `on_the_way` | `delivered` |
+| Marcar fallido | `/api/v1/orders/{id}/delivery-failed` | delivery (asignado), admin | `on_the_way` | `failed` |
+| Asignar repartidor | `/api/v1/orders/{id}/assign` | admin | `pending_dispatch` o `on_the_way` | cambia `assignedTo` |
+
+- Al despachar, si lo hace un repartidor, la entrega queda asignada a él; si ya estaba asignada a otro, `403`. El admin solo despacha si ya hay repartidor asignado (si no, `409`).
+- `assign` recibe `{ "userId": "uuid" }`; debe ser un usuario activo con rol `delivery` del mismo restaurante (si no, `400` con `field: "userId"`).
+- Las acciones sin cuerpo no aceptan campos (`400`). Cada cambio de estado queda en el historial con `field: "delivery_status"`.
+
+### 6.9 Configuración del restaurante
+
+| Método | Ruta | Quién | Éxito |
+|---|---|---|---|
+| `GET` | `/api/v1/restaurant/config` | todos | 200 |
+| `PATCH` | `/api/v1/restaurant/config` | admin | 200 |
+
+Cuerpo y respuesta: `{ "serviceMode": "dine_in" | "delivery" | "both" }` (RNF08).
+
+- Solo cambia el restaurante del admin autenticado. Se guarda en la instancia de escritura; si falla, la configuración anterior queda intacta y el admin recibe el error.
+- Al guardar, todas las pantallas del restaurante reciben por WebSocket `{ "type": "config.updated", "config": { "serviceMode": ... } }`.
+- Los pedidos se validan contra la modalidad dentro de la misma transacción en que se crean.
 
 ## 7. Limitaciones conocidas del MVP
 
