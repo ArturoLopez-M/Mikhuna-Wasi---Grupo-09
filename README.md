@@ -21,6 +21,9 @@ backend/     Lambdas en Node.js + TypeScript (una por módulo del diagrama)
     modules/ lógica de negocio por módulo (src/modules/<nombre>/)
   scripts/   build.mjs: empaqueta cada Lambda en dist/<nombre>/index.js
   tests/     pruebas con Vitest (sin base real ni AWS)
+frontend/    web en React + Vite + TypeScript (sitio estático para S3)
+  src/       login con Cognito, cliente de la API, WebSocket y pantallas por rol
+  tests/     pruebas con Vitest
 terraform/   infraestructura de dev (S3, Lambda de salud, API Gateway HTTP)
 .github/     workflows de GitHub Actions
 Docs/        documentación funcional y contrato de API
@@ -58,6 +61,24 @@ npm run build    # verifica tipos y genera dist/<lambda>/index.js
 
 > **Autenticación:** el token de Cognito lo valida el autorizador de API Gateway; cada Lambda busca al usuario por el `sub` del token en la tabla `users`. Las pruebas simulan usuarios con `tests/helpers/auth.ts` y emulan API Gateway con `tests/helpers/api.ts`.
 
+## Levantar el frontend en local
+
+```powershell
+cd frontend
+npm ci
+Copy-Item .env.example .env
+npm run dev      # http://localhost:5173
+npm test         # pruebas
+npm run build    # genera dist/, que se sube al bucket S3
+```
+
+En `.env` van las URLs de API Gateway (REST y WebSocket) y el App Client de Cognito (ver [`frontend/.env.example`](frontend/.env.example)). Sin esos servicios desplegados, la app muestra el login pero no puede iniciar sesión.
+
+- **Login:** formulario propio contra la API de Cognito (`USER_PASSWORD_AUTH`), sin librerías. El App Client debe ser público (sin secreto) y tener habilitados `ALLOW_USER_PASSWORD_AUTH` y `ALLOW_REFRESH_TOKEN_AUTH`. Si el usuario entra con una contraseña temporal, se le pide una nueva.
+- **Sesión:** el access token se renueva solo antes de vencer y la sesión se cierra tras 10 minutos sin actividad.
+- **Tiempo real (RNF03):** la app escucha el WebSocket; si se corta más de 5 s, muestra la hora de la última actualización y consulta cada 15 s hasta reconectar.
+- **Por rol (RNF09):** cada rol ve solo sus pantallas y acciones; si el navegador no es compatible, se muestra un aviso.
+
 ## Infraestructura (Terraform)
 
 `terraform/` despliega un entorno de **prueba** en `us-east-2`: bucket S3 del frontend, una Lambda `GET /health` detrás de API Gateway HTTP y su log group cifrado con KMS. El estado remoto está en S3 (`backend.tf`).
@@ -81,10 +102,10 @@ Comparación del repositorio con el informe de diseño. Leyenda: ✅ implementad
 | Productos, `/me`, configuración por restaurante (RNF08) | ✅ | `modules/products`, `modules/restaurant` |
 | Delivery y rol repartidor | ✅ | `modules/delivery`, Lambda `delivery` |
 | Lambda por módulo con SQS + DLQ (RNF01/RNF07) | 🟡 | `src/lambdas/` (las 5 del diagrama); colas y DLQ no están en Terraform |
-| WebSocket y avisos en tiempo real (RNF02/RNF03) | 🟡 | `core/websocket.ts`, `core/realtime.ts`; el polling de respaldo va en el frontend |
+| WebSocket y avisos en tiempo real (RNF02/RNF03) | ✅ | backend: `core/websocket.ts`, `core/realtime.ts`; frontend: `realtime/connection.ts` con polling de respaldo |
 | Aurora Serverless v2 multi-AZ, RDS Proxy, VPC (RNF04/RNF06) | ❌ | Terraform no los define |
 | ElastiCache (duplicados, conexiones, caché de lectura) | 🟡 | `core/cache.ts`; el clúster no está en Terraform |
 | WAF, CloudFront, Route 53 | ❌ | |
 | AWS Backup diario/semanal/PITR (RNF11) | ❌ | |
 | Alarmas CloudWatch + SNS (RNF10) | ❌ | solo existe un log group |
-| Frontend web adaptable (RNF09) | ❌ | S3 contiene un `index.html` de prueba |
+| Frontend web adaptable por rol (RNF09) | ✅ | `frontend/`; falta subirlo a S3 con Terraform |

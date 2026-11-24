@@ -19,7 +19,7 @@ Contrato que siguen backend y frontend. Versión del MVP. Cualquier cambio se di
 El camino de cada petición sigue el diagrama de arquitectura:
 
 - **Consultas, perfil y configuración**: API Gateway REST → Lambda **Lectura y Configuración**, sin cola, porque el usuario espera la respuesta en pantalla. Son los `GET`, más guardar la modalidad del restaurante y el menú (`PATCH /restaurant/config`, `POST /products`, `PATCH /products/{id}`). La respuesta HTTP es la descrita en cada endpoint.
-- **Escrituras de pedidos (`POST /orders...`)**: API Gateway REST deja la petición en la cola SQS del módulo y responde enseguida **`202 Accepted`** con `{ "requestId": "..." }`. La Lambda del módulo la procesa:
+- **Escrituras de pedidos (`POST /orders...`)**: API Gateway REST deja la petición en la cola SQS del módulo y responde enseguida **`202 Accepted`** con `{ "requestId": "..." }`. La respuesta 202 la arma API Gateway (integración directa con SQS), así que el `requestId` es el de esa petición; el frontend lo usa para reconocer su resultado en el WebSocket. La Lambda del módulo la procesa:
 
 | Ruta | Cola y Lambda |
 |---|---|
