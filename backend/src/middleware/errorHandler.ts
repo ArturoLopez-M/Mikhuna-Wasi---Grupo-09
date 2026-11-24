@@ -9,13 +9,35 @@ export function notFoundHandler(
   next(new HttpError(404, "NOT_FOUND", "Ruta no encontrada"));
 }
 
+// RNF05: los accesos rechazados (401/403) se registran con usuario,
+// restaurante (si se conocen), ruta y fecha/hora. Es una línea JSON para que
+// CloudWatch Logs pueda filtrarla con un metric filter y disparar una alarma.
+// Nunca se registra el token ni el cuerpo de la petición.
+function logAccessDenied(req: Request, err: HttpError): void {
+  console.warn(
+    JSON.stringify({
+      event: "ACCESS_DENIED",
+      status: err.statusCode,
+      code: err.code,
+      userId: req.identity?.userId ?? null,
+      restaurantId: req.identity?.restaurantId ?? null,
+      method: req.method,
+      path: req.originalUrl.split("?")[0],
+      at: new Date().toISOString(),
+    }),
+  );
+}
+
 export function errorHandler(
   err: unknown,
-  _req: Request,
+  req: Request,
   res: Response,
   _next: NextFunction,
 ): void {
   if (err instanceof HttpError) {
+    if (err.statusCode === 401 || err.statusCode === 403) {
+      logAccessDenied(req, err);
+    }
     res.status(err.statusCode).json({
       error: {
         code: err.code,
